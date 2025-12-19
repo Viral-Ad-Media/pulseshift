@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { RequestType, ShiftRequest, RequestStatus } from '../types';
 import { analyzeRequestConflict } from '../services/gemini';
 
@@ -8,6 +8,9 @@ interface RequestModalProps {
   onClose: () => void;
   onSubmit: (type: RequestType, notes: string) => void;
   onDelete?: () => void;
+  aiEnabled: boolean;
+  aiDisabledReason?: string;
+  onAiUsage?: () => void;
 }
 
 export const RequestModal: React.FC<RequestModalProps> = ({ 
@@ -15,7 +18,10 @@ export const RequestModal: React.FC<RequestModalProps> = ({
   existingRequest,
   onClose, 
   onSubmit,
-  onDelete 
+  onDelete,
+  aiEnabled,
+  aiDisabledReason,
+  onAiUsage
 }) => {
   const [activeTab, setActiveTab] = useState<RequestType>(existingRequest?.type || RequestType.WORK);
   const [notes, setNotes] = useState(existingRequest?.notes || '');
@@ -24,20 +30,29 @@ export const RequestModal: React.FC<RequestModalProps> = ({
     allowed: true, 
     message: null 
   });
+  const countedAiUsage = useRef(false);
 
   const dateStr = date.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' });
   const isoDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   const isEditable = !existingRequest || existingRequest.status === RequestStatus.PENDING;
 
   useEffect(() => {
-    // Simulate checking availability with AI
     let mounted = true;
     
     const check = async () => {
+      if (!aiEnabled || existingRequest) {
+        setAiAnalysis({ loading: false, allowed: aiEnabled, message: aiDisabledReason || 'AI conflict checks are disabled for this plan.' });
+        return;
+      }
+
       setAiAnalysis({ loading: true, allowed: true, message: null });
       // Random mock "currentRequests" count for demo variety
       const mockCount = Math.floor(Math.random() * 6); 
       const result = await analyzeRequestConflict(isoDate, activeTab, mockCount);
+      if (!countedAiUsage.current && onAiUsage) {
+        onAiUsage();
+        countedAiUsage.current = true;
+      }
       
       if (mounted) {
         setAiAnalysis({ 
@@ -50,7 +65,7 @@ export const RequestModal: React.FC<RequestModalProps> = ({
     check();
 
     return () => { mounted = false; };
-  }, [activeTab, isoDate]);
+  }, [activeTab, isoDate, aiEnabled, aiDisabledReason, existingRequest, onAiUsage]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
@@ -89,20 +104,24 @@ export const RequestModal: React.FC<RequestModalProps> = ({
            {!existingRequest && (
              <div className={`mb-6 p-4 rounded-xl border flex gap-3 transition-colors ${
                aiAnalysis.loading ? 'bg-slate-50 border-slate-100' : 
-               aiAnalysis.allowed ? 'bg-sky-50 border-sky-100' : 'bg-amber-50 border-amber-100'
+               aiEnabled && aiAnalysis.allowed ? 'bg-sky-50 border-sky-100' : 'bg-amber-50 border-amber-100'
              }`}>
                 <div className={`mt-0.5 ${
                   aiAnalysis.loading ? 'text-sky-500' : 
-                  aiAnalysis.allowed ? 'text-sky-500' : 'text-amber-500'
+                  aiEnabled && aiAnalysis.allowed ? 'text-sky-500' : 'text-amber-500'
                 }`}>
                   {aiAnalysis.loading ? <i className="fa-solid fa-circle-notch fa-spin"></i> : 
-                   aiAnalysis.allowed ? <i className="fa-solid fa-wand-magic-sparkles"></i> : <i className="fa-solid fa-triangle-exclamation"></i>}
+                   aiEnabled && aiAnalysis.allowed ? <i className="fa-solid fa-wand-magic-sparkles"></i> : <i className="fa-solid fa-lock"></i>}
                 </div>
                 <div className="text-sm">
                   <p className={`font-semibold mb-1 ${
-                    aiAnalysis.allowed ? 'text-slate-800' : 'text-amber-800'
+                    aiEnabled && aiAnalysis.allowed ? 'text-slate-800' : 'text-amber-800'
                   }`}>
-                    {aiAnalysis.allowed ? 'Availability Insight' : 'High Demand Alert'}
+                    {aiAnalysis.loading 
+                      ? 'Analyzing availability' 
+                      : aiEnabled && aiAnalysis.allowed 
+                        ? 'Availability Insight' 
+                        : 'AI checks unavailable'}
                   </p>
                   <p className="text-slate-600 leading-relaxed">
                     {aiAnalysis.loading ? 'Analyzing schedule conflicts...' : aiAnalysis.message}

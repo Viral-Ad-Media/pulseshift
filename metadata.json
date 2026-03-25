@@ -1,5 +1,5 @@
 {
   "name": "PulseShift",
-  "description": "A modern, AI-powered scheduling application for nurses to manage shifts, PTO, and sick leave with streamlined admin approval workflows.",
+  "description": "A multi-tenant, Supabase-backed healthcare scheduling SaaS for shift requests, staffing approvals, workspace plans, and AI-assisted conflict checks.",
   "requestFramePermissions": []
 }

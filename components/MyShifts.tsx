@@ -8,7 +8,6 @@ interface MyShiftsProps {
 }
 
 export const MyShifts: React.FC<MyShiftsProps> = ({ requests, onEdit, onCancel }) => {
-  // Sort by date descending
   const sortedRequests = [...requests].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const getStatusColor = (status: RequestStatus) => {
@@ -32,23 +31,24 @@ export const MyShifts: React.FC<MyShiftsProps> = ({ requests, onEdit, onCancel }
     <div className="max-w-5xl mx-auto animate-fade-in-up">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">My Requests & Shifts</h2>
-          <p className="text-slate-500">Manage your upcoming schedule and time off.</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-sky-600">My Workspace</p>
+          <h2 className="mt-3 text-3xl font-extrabold text-slate-950">My schedule requests</h2>
+          <p className="mt-2 text-sm text-slate-500">Track approvals, edit pending submissions, and keep your availability current.</p>
         </div>
       </div>
 
       <div className="grid gap-4">
         {sortedRequests.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-300">
+          <div className="text-center py-16 bg-white rounded-[28px] border border-dashed border-slate-300 shadow-sm">
             <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-400 text-2xl">
               <i className="fa-regular fa-calendar-xmark"></i>
             </div>
-            <h3 className="text-lg font-medium text-slate-900">No requests yet</h3>
-            <p className="text-slate-500">Select a date on the calendar to make a request.</p>
+            <h3 className="text-lg font-semibold text-slate-950">No requests yet</h3>
+            <p className="text-slate-500">Open any date in the schedule to create your first staffing request.</p>
           </div>
         ) : (
           sortedRequests.map((req) => (
-            <div key={req.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all group">
+            <div key={req.id} className="bg-white p-5 rounded-[28px] border border-slate-200 shadow-sm hover:shadow-md transition-all group">
               <div className="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-6">
                 
                 {/* Date Box */}

@@ -4,6 +4,7 @@ export enum Role {
 }
 
 export type PlanTier = 'ESSENTIALS' | 'TEAM' | 'BUSINESS';
+export type TrialStatus = 'ACTIVE' | 'EXPIRED' | 'NONE';
 
 export enum RequestType {
   WORK = 'WORK',
@@ -58,6 +59,8 @@ export interface Organization {
   ownerName: string;
   seats: { total: number; used: number };
   trialEndsOn?: string;
+  trialStatus: TrialStatus;
+  trialDaysRemaining?: number;
 }
 
 export interface PlanLimits {

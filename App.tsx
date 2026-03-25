@@ -4,329 +4,693 @@ import { Calendar } from './components/Calendar';
 import { RequestModal } from './components/RequestModal';
 import { AdminPanel } from './components/AdminPanel';
 import { MyShifts } from './components/MyShifts';
-import { User, Role, ShiftRequest, RequestType, RequestStatus, Organization, SessionState } from './types';
+import { PlanModal } from './components/PlanModal';
+import { Organization, RequestStatus, RequestType, Role, ShiftRequest, User } from './types';
+import { api, setAuthToken } from './services/api';
 
-const STORAGE_KEY = 'pulseshift_saas_v1';
+type Membership = { orgId: string; role: Role };
+type Notice = { type: 'success' | 'error' | 'info'; message: string };
+type SessionUser = { id: string; name: string; email?: string; avatar?: string; title?: string };
+type SignupPayload = { name: string; orgName: string; email: string; password: string; timezone: string };
 
-const formatDateKey = (date: Date) => {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-};
+const TOKEN_KEY = 'pulseshift_token';
+const WORKSPACE_KEY = 'pulseshift_workspace';
 
-const ORGANIZATIONS: Organization[] = [
-  {
-    id: 'org-summit',
-    name: 'Summit Health Network',
-    slug: 'summit-health',
-    industry: 'Hospitals',
-    plan: 'TEAM',
-    timezone: 'America/New_York',
-    requestLimit: 120,
-    aiCredits: 80,
-    aiUsed: 12,
-    ownerName: 'Bruce Parks',
-    seats: { total: 12, used: 9 },
-  },
-  {
-    id: 'org-lumen',
-    name: 'Lumen Home Care',
-    slug: 'lumen-home',
-    industry: 'Home Health',
-    plan: 'ESSENTIALS',
-    timezone: 'America/Chicago',
-    requestLimit: 40,
-    aiCredits: 10,
-    aiUsed: 3,
-    ownerName: 'Carla Gomez',
-    seats: { total: 8, used: 5 },
-    trialEndsOn: '2025-03-12',
-  },
-];
+const formatDateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
-const USERS: User[] = [
-  { id: 'u1', name: 'Jake Avery', title: 'Field RN', role: Role.NURSE, orgId: 'org-summit', avatar: 'https://i.pravatar.cc/150?u=u1' },
-  { id: 'u2', name: 'Sergio Good', title: 'Infusion RN', role: Role.NURSE, orgId: 'org-summit', avatar: 'https://i.pravatar.cc/150?u=u2' },
-  { id: 'u3', name: "Luke O'Conner", title: 'Charge RN', role: Role.NURSE, orgId: 'org-summit', avatar: 'https://i.pravatar.cc/150?u=u3' },
-  { id: 'u4', name: 'Erick Perez', title: 'PRN', role: Role.NURSE, orgId: 'org-summit', avatar: 'https://i.pravatar.cc/150?u=u4' },
-  { id: 'a1', name: 'Bruce Parks', title: 'Director', role: Role.ADMIN, orgId: 'org-summit', avatar: 'https://i.pravatar.cc/150?u=a1' },
-  { id: 'u5', name: 'Devon Isaacs', title: 'RN Case Manager', role: Role.NURSE, orgId: 'org-lumen', avatar: 'https://i.pravatar.cc/150?u=u5' },
-  { id: 'u6', name: 'Maya Cho', title: 'Scheduler', role: Role.NURSE, orgId: 'org-lumen', avatar: 'https://i.pravatar.cc/150?u=u6' },
-  { id: 'a2', name: 'Carla Gomez', title: 'Clinical Ops', role: Role.ADMIN, orgId: 'org-lumen', avatar: 'https://i.pravatar.cc/150?u=a2' },
-];
+const resolvePreferredOrg = (memberships: Membership[], preferredOrgId: string | null) =>
+  memberships.some((membership) => membership.orgId === preferredOrgId)
+    ? preferredOrgId
+    : memberships[0]?.orgId || null;
 
-const DEFAULT_REQUESTS: Record<string, ShiftRequest[]> = (() => {
-  const today = new Date();
-  const tomorrow = new Date();
-  const nextWeek = new Date();
-  tomorrow.setDate(today.getDate() + 1);
-  nextWeek.setDate(today.getDate() + 7);
+const AuthCard: React.FC<{
+  onLogin: (email: string, password: string) => void;
+  onSignup: (payload: SignupPayload) => void;
+  loading: boolean;
+  error: string | null;
+}> = ({ onLogin, onSignup, loading, error }) => {
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [name, setName] = useState('');
+  const [orgName, setOrgName] = useState('');
+  const [email, setEmail] = useState('bruce@summit.com');
+  const [password, setPassword] = useState('password123');
 
-  const todayStr = formatDateKey(today);
-  const tomorrowStr = formatDateKey(tomorrow);
-  const nextWeekStr = formatDateKey(nextWeek);
+  useEffect(() => {
+    if (mode === 'login') {
+      setName('');
+      setOrgName('');
+      setEmail('bruce@summit.com');
+      setPassword('password123');
+      return;
+    }
 
-  return {
-    'org-summit': [
-      { id: 'req-1', orgId: 'org-summit', userId: 'u1', userName: 'Jake Avery', date: todayStr, type: RequestType.WORK, status: RequestStatus.APPROVED, createdAt: Date.now(), notes: 'OR coverage' },
-      { id: 'req-2', orgId: 'org-summit', userId: 'u2', userName: 'Sergio Good', date: todayStr, type: RequestType.WORK, status: RequestStatus.APPROVED, createdAt: Date.now() - 1000, notes: 'Cath lab follow-up' },
-      { id: 'req-3', orgId: 'org-summit', userId: 'u3', userName: "Luke O'Conner", date: todayStr, type: RequestType.WORK, status: RequestStatus.APPROVED, createdAt: Date.now() - 2000, notes: 'Half day' },
-      { id: 'req-4', orgId: 'org-summit', userId: 'u4', userName: 'Erick Perez', date: tomorrowStr, type: RequestType.PTO, status: RequestStatus.APPROVED, createdAt: Date.now() - 3000 },
-      { id: 'req-5', orgId: 'org-summit', userId: 'u1', userName: 'Jake Avery', date: nextWeekStr, type: RequestType.SICK, status: RequestStatus.PENDING, createdAt: Date.now() - 4000, notes: 'Pre-op appointment' },
-    ],
-    'org-lumen': [
-      { id: 'req-6', orgId: 'org-lumen', userId: 'u5', userName: 'Devon Isaacs', date: tomorrowStr, type: RequestType.WORK, status: RequestStatus.APPROVED, createdAt: Date.now() - 5000 },
-      { id: 'req-7', orgId: 'org-lumen', userId: 'u6', userName: 'Maya Cho', date: nextWeekStr, type: RequestType.PTO, status: RequestStatus.PENDING, createdAt: Date.now() - 6000, notes: 'Family event' },
-      { id: 'req-8', orgId: 'org-lumen', userId: 'u5', userName: 'Devon Isaacs', date: todayStr, type: RequestType.SICK, status: RequestStatus.REJECTED, createdAt: Date.now() - 7000, notes: 'Sick day request exceeded cap' },
-    ],
-  };
-})();
+    setEmail('');
+    setPassword('');
+  }, [mode]);
 
-const buildDefaultSession = (): SessionState => {
-  const defaultOrgId = ORGANIZATIONS[0].id;
-  const defaultUser = USERS.find(u => u.orgId === defaultOrgId && u.role === Role.NURSE) || USERS.find(u => u.orgId === defaultOrgId) || USERS[0];
-  return { orgId: defaultOrgId, userId: defaultUser.id };
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago';
+  const isDisabled =
+    loading ||
+    !email.trim() ||
+    !password.trim() ||
+    (mode === 'signup' && (!name.trim() || !orgName.trim()));
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-transparent px-4 py-10">
+      <div className="grid w-full max-w-5xl overflow-hidden rounded-[32px] border border-white/50 bg-white/90 shadow-[0_28px_90px_rgba(15,23,42,0.12)] backdrop-blur xl:grid-cols-[1.05fr_minmax(0,0.95fr)]">
+        <section className="hidden bg-slate-950 p-10 text-white xl:flex xl:flex-col">
+          <div className="inline-flex w-fit items-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-sky-200">
+            <i className="fa-solid fa-heart-pulse"></i>
+            PulseShift
+          </div>
+          <h1 className="mt-8 text-5xl font-extrabold leading-tight">
+            Healthcare scheduling that feels like a real SaaS workspace.
+          </h1>
+          <p className="mt-5 max-w-xl text-base leading-7 text-slate-300">
+            Manage multi-tenant workspaces, staff requests, AI-assisted approvals, usage limits, and plan upgrades
+            from one scheduling surface built for care teams.
+          </p>
+
+          <div className="mt-10 grid gap-4">
+            {[
+              'Multi-organization auth and workspace switching',
+              'Server-side plan limits and AI credit metering',
+              'Approval flows for PTO, sick leave, and work coverage',
+            ].map((item) => (
+              <div key={item} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-200">
+                <i className="fa-solid fa-check text-emerald-400"></i>
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-auto rounded-3xl border border-sky-400/20 bg-sky-400/10 p-5">
+            <p className="text-xs font-bold uppercase tracking-[0.24em] text-sky-300">Demo access</p>
+            <div className="mt-4 space-y-2 text-sm text-slate-100">
+              <p>Admin: bruce@summit.com / password123</p>
+              <p>Nurse: jake@summit.com / password123</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="p-6 sm:p-10">
+          <div className="xl:hidden">
+            <div className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700">
+              <i className="fa-solid fa-heart-pulse"></i>
+              PulseShift
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <p className="text-sm font-bold uppercase tracking-[0.28em] text-sky-600">
+              {mode === 'login' ? 'Welcome back' : 'Create workspace'}
+            </p>
+            <h2 className="mt-3 text-3xl font-extrabold text-slate-950">
+              {mode === 'login' ? 'Sign in to your staffing workspace' : 'Launch a new scheduling workspace'}
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-500">
+              {mode === 'login'
+                ? 'Use the seeded demo accounts or sign in with an existing organization membership.'
+                : `We will create a Team trial workspace using your browser timezone: ${timezone}.`}
+            </p>
+          </div>
+
+          {error && (
+            <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {error}
+            </div>
+          )}
+
+          <div className="mt-8 space-y-5">
+            {mode === 'signup' && (
+              <>
+                <label className="block space-y-2">
+                  <span className="text-sm font-semibold text-slate-700">Your name</span>
+                  <input
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+                    placeholder="Alex Morgan"
+                  />
+                </label>
+                <label className="block space-y-2">
+                  <span className="text-sm font-semibold text-slate-700">Workspace name</span>
+                  <input
+                    value={orgName}
+                    onChange={(event) => setOrgName(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+                    placeholder="Northstar Clinic"
+                  />
+                </label>
+              </>
+            )}
+
+            <label className="block space-y-2">
+              <span className="text-sm font-semibold text-slate-700">Email</span>
+              <input
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+                placeholder="name@company.com"
+              />
+            </label>
+
+            <label className="block space-y-2">
+              <span className="text-sm font-semibold text-slate-700">Password</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+                placeholder="••••••••"
+              />
+            </label>
+          </div>
+
+          <button
+            onClick={() => {
+              if (mode === 'login') {
+                onLogin(email, password);
+                return;
+              }
+
+              onSignup({ name, orgName, email, password, timezone });
+            }}
+            disabled={isDisabled}
+            className="mt-8 w-full rounded-2xl bg-slate-950 px-4 py-4 text-sm font-semibold text-white shadow-lg shadow-slate-950/10 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading ? 'Working...' : mode === 'login' ? 'Sign in' : 'Create workspace'}
+          </button>
+
+          <button
+            onClick={() => setMode((current) => (current === 'login' ? 'signup' : 'login'))}
+            className="mt-4 w-full text-center text-sm font-semibold text-slate-600 hover:text-slate-900"
+          >
+            {mode === 'login' ? 'Need a workspace? Create one' : 'Already have an account? Sign in'}
+          </button>
+        </section>
+      </div>
+    </div>
+  );
 };
 
 const App: React.FC = () => {
-  const [session, setSession] = useState<SessionState>(buildDefaultSession);
-  const [organizations, setOrganizations] = useState<Organization[]>(ORGANIZATIONS);
-  const [requestsByOrg, setRequestsByOrg] = useState<Record<string, ShiftRequest[]>>(DEFAULT_REQUESTS);
+  const [token, setTokenState] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<SessionUser | null>(null);
+  const [memberships, setMemberships] = useState<Membership[]>([]);
+  const [orgs, setOrgs] = useState<Organization[]>([]);
+  const [currentOrgId, setCurrentOrgId] = useState<string | null>(null);
+  const [orgUsers, setOrgUsers] = useState<Record<string, User[]>>({});
+  const [requestsByOrg, setRequestsByOrg] = useState<Record<string, ShiftRequest[]>>({});
+  const [loading, setLoading] = useState(false);
+  const [bootstrapping, setBootstrapping] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
 
-  // Navigation State
-  const [viewMode, setViewMode] = useState<'LIST' | 'CALENDAR' | 'DISPATCH' | 'MAP'>('DISPATCH');
-  const [timeView, setTimeView] = useState<'DAY' | 'WEEK' | 'MONTH' | 'INDIVIDUAL'>('DAY');
+  const [viewMode, setViewMode] = useState<'LIST' | 'CALENDAR' | 'DISPATCH'>('DISPATCH');
+  const [timeView, setTimeView] = useState<'DAY' | 'MONTH'>('DAY');
   const [scope, setScope] = useState<'MY' | 'TEAM'>('TEAM');
   const [currentDate, setCurrentDate] = useState(new Date());
-
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [editingRequest, setEditingRequest] = useState<ShiftRequest | undefined>(undefined);
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.session) setSession(parsed.session);
-        if (parsed.requestsByOrg) setRequestsByOrg(parsed.requestsByOrg);
-        if (parsed.organizations) setOrganizations(parsed.organizations);
-      } catch (error) {
-        console.warn('Unable to restore saved session', error);
-      }
-    } else {
-      const legacy = localStorage.getItem('pulseShift_requests');
-      if (legacy) {
-        try {
-          const parsedLegacy = JSON.parse(legacy);
-          setRequestsByOrg(prev => ({ ...prev, [buildDefaultSession().orgId]: parsedLegacy }));
-        } catch (error) {
-          console.warn('Unable to migrate legacy requests', error);
-        }
-      }
+    if (!notice) return undefined;
+
+    const timeout = window.setTimeout(() => setNotice(null), 4200);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
+  const showNotice = (type: Notice['type'], message: string) => setNotice({ type, message });
+
+  const loadOrg = async (orgId: string) => {
+    const response = await api.get(`/orgs/${orgId}/full`);
+    setOrgs((previous) => {
+      const others = previous.filter((organization) => organization.id !== response.org.id);
+      return [...others, response.org];
+    });
+    setOrgUsers((previous) => ({ ...previous, [orgId]: response.users }));
+    setRequestsByOrg((previous) => ({ ...previous, [orgId]: response.requests }));
+  };
+
+  const hydrateSession = async (
+    session: {
+      token: string;
+      user: SessionUser;
+      memberships: Membership[];
+      orgs: Organization[];
+    },
+    preferredOrgId?: string | null
+  ) => {
+    setAuthToken(session.token);
+    localStorage.setItem(TOKEN_KEY, session.token);
+    setTokenState(session.token);
+    setAuthUser({
+      id: session.user.id,
+      name: session.user.name,
+      email: session.user.email,
+      avatar: session.user.avatar,
+      title: session.user.title,
+    });
+    setMemberships(session.memberships);
+    setOrgs(session.orgs);
+
+    const resolvedOrgId = resolvePreferredOrg(session.memberships, preferredOrgId ?? localStorage.getItem(WORKSPACE_KEY));
+    setCurrentOrgId(resolvedOrgId);
+    if (resolvedOrgId) {
+      localStorage.setItem(WORKSPACE_KEY, resolvedOrgId);
+      await loadOrg(resolvedOrgId);
     }
-  }, []);
+  };
+
+  const fetchMe = async (incomingToken?: string) => {
+    try {
+      setLoading(true);
+      const data = await api.get('/me');
+      await hydrateSession(
+        {
+          token: incomingToken || token || '',
+          user: {
+            id: data.user.id,
+            name: data.user.name,
+            email: data.user.email,
+            avatar: data.user.avatar,
+            title: data.user.title,
+          },
+          memberships: data.memberships,
+          orgs: data.orgs,
+        },
+        localStorage.getItem(WORKSPACE_KEY)
+      );
+      setAuthError(null);
+    } catch (error: any) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(WORKSPACE_KEY);
+      setAuthToken(null);
+      setTokenState(null);
+      setAuthUser(null);
+      setMemberships([]);
+      setOrgs([]);
+      setCurrentOrgId(null);
+      setOrgUsers({});
+      setRequestsByOrg({});
+      setAuthError(error.message || 'Unable to load account');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ session, organizations, requestsByOrg }));
-  }, [session, organizations, requestsByOrg]);
+    const savedToken = localStorage.getItem(TOKEN_KEY);
+    if (!savedToken) {
+      setBootstrapping(false);
+      return;
+    }
 
-  const currentOrg = useMemo<Organization>(
-    () => organizations.find(org => org.id === session.orgId) || organizations[0] || ORGANIZATIONS[0],
-    [organizations, session.orgId]
-  );
-  const orgUsers = useMemo<User[]>(() => USERS.filter(u => u.orgId === currentOrg.id), [currentOrg]);
-  const currentUser = useMemo<User>(
-    () => orgUsers.find(u => u.id === session.userId) || orgUsers[0] || USERS[0],
-    [orgUsers, session.userId]
-  );
+    setAuthToken(savedToken);
+    setTokenState(savedToken);
+    fetchMe(savedToken).finally(() => setBootstrapping(false));
+  }, []);
 
-  const currentRequests = requestsByOrg[currentOrg.id] || [];
-  const apiKey = (process.env.API_KEY || process.env.GEMINI_API_KEY || '').trim();
-  const aiQuotaRemaining = Math.max(currentOrg.aiCredits - currentOrg.aiUsed, 0);
-  const planSupportsAi = currentOrg.plan !== 'ESSENTIALS';
-  const aiEnabled = planSupportsAi && Boolean(apiKey) && aiQuotaRemaining > 0;
-  const aiDisabledReason = !planSupportsAi
-    ? 'AI conflict checks are available on Team plans and above.'
-    : !apiKey
-      ? 'Add GEMINI_API_KEY to .env.local to enable AI checks.'
-      : 'You have used all AI credits for this workspace.';
-
-  const handleOrgChange = (orgId: string) => {
-    const targetOrg = organizations.find(o => o.id === orgId);
-    if (!targetOrg) return;
-    const candidates = USERS.filter(u => u.orgId === orgId);
-    if (candidates.length === 0) return;
-    const preferred = candidates.find(u => u.role === currentUser.role) || candidates[0];
-    setSession({ orgId, userId: preferred.id });
-    setScope('TEAM');
-    setSelectedDate(null);
-    setEditingRequest(undefined);
-  };
-
-  const switchRole = () => {
-    const next =
-      currentUser.role === Role.NURSE
-        ? orgUsers.find(u => u.role === Role.ADMIN)
-        : orgUsers.find(u => u.role === Role.NURSE);
-    if (next) {
-      setSession(prev => ({ ...prev, userId: next.id }));
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      setLoading(true);
+      const response = await api.post('/auth/login', { email, password });
+      await hydrateSession(response);
+      setAuthError(null);
+      showNotice('success', 'Signed in successfully.');
+    } catch (error: any) {
+      setAuthError(error.message || 'Login failed');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const updateRequestsForCurrentOrg = (updater: (requests: ShiftRequest[]) => ShiftRequest[]) => {
-    setRequestsByOrg(prev => ({
-      ...prev,
-      [currentOrg.id]: updater(prev[currentOrg.id] ?? []),
-    }));
+  const handleSignup = async (payload: SignupPayload) => {
+    try {
+      setLoading(true);
+      const response = await api.post('/auth/signup', payload);
+      await hydrateSession(response, response.memberships[0]?.orgId || null);
+      setAuthError(null);
+      showNotice('success', 'Workspace created. Your Team trial is ready.');
+    } catch (error: any) {
+      setAuthError(error.message || 'Signup failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(WORKSPACE_KEY);
+    setAuthToken(null);
+    setTokenState(null);
+    setAuthUser(null);
+    setMemberships([]);
+    setOrgs([]);
+    setCurrentOrgId(null);
+    setOrgUsers({});
+    setRequestsByOrg({});
+    setSelectedDate(null);
+    setEditingRequest(undefined);
+    setIsModalOpen(false);
+    setIsPlanModalOpen(false);
+    setViewMode('DISPATCH');
+    setTimeView('DAY');
+    setScope('TEAM');
+    setCurrentDate(new Date());
+    setAuthError(null);
+    setNotice(null);
+  };
+
+  const handleOrgChange = async (orgId: string) => {
+    const previousOrgId = currentOrgId;
+
+    try {
+      setLoading(true);
+      setScope('TEAM');
+      setSelectedDate(null);
+      setEditingRequest(undefined);
+      await loadOrg(orgId);
+      setCurrentOrgId(orgId);
+      localStorage.setItem(WORKSPACE_KEY, orgId);
+      showNotice('info', 'Workspace context updated.');
+    } catch (error: any) {
+      if (previousOrgId) {
+        setCurrentOrgId(previousOrgId);
+      }
+      showNotice('error', error.message || 'Failed to load workspace');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const refreshCurrentOrg = async () => {
+    if (!currentOrgId) return;
+
+    try {
+      setLoading(true);
+      await loadOrg(currentOrgId);
+      showNotice('info', 'Workspace refreshed.');
+    } catch (error: any) {
+      showNotice('error', error.message || 'Unable to refresh workspace');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleOpenRequestModal = (date: Date) => {
     setSelectedDate(date);
-    const dateStr = formatDateKey(date);
-    const existing = currentRequests.find(r => r.userId === currentUser.id && r.date === dateStr);
+    const dateKey = formatDateKey(date);
+    const existing = currentRequests.find((request) => request.userId === currentUser?.id && request.date === dateKey);
     setEditingRequest(existing);
     setIsModalOpen(true);
   };
 
   const handleMonthChange = (increment: number) => {
-    const newDate = new Date(currentDate);
-    newDate.setMonth(newDate.getMonth() + increment);
-    setCurrentDate(newDate);
+    const nextDate = new Date(currentDate);
+    nextDate.setMonth(nextDate.getMonth() + increment);
+    setCurrentDate(nextDate);
   };
 
-  const handleSubmitRequest = (type: RequestType, notes: string) => {
-    if (!selectedDate) return;
-    const requestLimitReached = !editingRequest && currentRequests.length >= currentOrg.requestLimit;
-    if (requestLimitReached) {
-      alert('You have reached this workspace request limit. Upgrade to add more.');
-      return;
+  const handleSubmitRequest = async (type: RequestType, notes: string) => {
+    if (!selectedDate || !currentOrgId) return;
+
+    try {
+      const payload = { date: formatDateKey(selectedDate), type, notes };
+      const response = editingRequest
+        ? await api.put(`/orgs/${currentOrgId}/requests/${editingRequest.id}`, payload)
+        : await api.post(`/orgs/${currentOrgId}/requests`, payload);
+      const nextRequests = editingRequest
+        ? currentRequests.map((request) => (request.id === editingRequest.id ? response.request : request))
+        : [response.request, ...currentRequests];
+      setRequestsByOrg((previous) => ({ ...previous, [currentOrgId]: nextRequests }));
+      showNotice('success', editingRequest ? 'Request updated.' : 'Request submitted.');
+    } catch (error: any) {
+      showNotice('error', error.message || 'Unable to save request');
+    } finally {
+      setIsModalOpen(false);
+      setEditingRequest(undefined);
     }
+  };
 
-    if (editingRequest) {
-      updateRequestsForCurrentOrg(prev =>
-        prev.map(r => (r.id === editingRequest.id ? { ...r, type, notes } : r))
-      );
-    } else {
-      const newRequest: ShiftRequest = {
-        id: Math.random().toString(36).slice(2, 10),
-        orgId: currentOrg.id,
-        userId: currentUser.id,
-        userName: currentUser.name,
-        date: formatDateKey(selectedDate),
-        type,
-        status: RequestStatus.PENDING,
-        notes,
-        createdAt: Date.now(),
-      };
-      updateRequestsForCurrentOrg(prev => [...prev, newRequest]);
+  const handleDeleteRequest = async () => {
+    if (!editingRequest || !currentOrgId) return;
+
+    try {
+      await api.del(`/orgs/${currentOrgId}/requests/${editingRequest.id}`);
+      setRequestsByOrg((previous) => ({
+        ...previous,
+        [currentOrgId]: (previous[currentOrgId] || []).filter((request) => request.id !== editingRequest.id),
+      }));
+      showNotice('success', 'Request removed.');
+    } catch (error: any) {
+      showNotice('error', error.message || 'Unable to delete request');
+    } finally {
+      setIsModalOpen(false);
+      setEditingRequest(undefined);
     }
-
-    setIsModalOpen(false);
-    setEditingRequest(undefined);
   };
 
-  const handleDeleteRequest = () => {
-    if (!editingRequest) return;
-    updateRequestsForCurrentOrg(prev => prev.filter(r => r.id !== editingRequest.id));
-    setIsModalOpen(false);
-    setEditingRequest(undefined);
+  const handleCancelMyRequest = async (requestId: string) => {
+    if (!currentOrgId) return;
+
+    try {
+      await api.del(`/orgs/${currentOrgId}/requests/${requestId}`);
+      setRequestsByOrg((previous) => ({
+        ...previous,
+        [currentOrgId]: (previous[currentOrgId] || []).filter((request) => request.id !== requestId),
+      }));
+      showNotice('success', 'Request canceled.');
+    } catch (error: any) {
+      showNotice('error', error.message || 'Unable to cancel request');
+    }
   };
 
-  const handleAiUsage = () => {
-    setOrganizations(prev =>
-      prev.map(org =>
-        org.id === currentOrg.id ? { ...org, aiUsed: Math.min(org.aiCredits, org.aiUsed + 1) } : org
-      )
-    );
+  const handleUpdateRequestStatus = async (id: string, status: RequestStatus, response?: string) => {
+    if (!currentOrgId) return;
+
+    try {
+      const result = await api.put(`/orgs/${currentOrgId}/requests/${id}`, { status, adminResponse: response });
+      setRequestsByOrg((previous) => ({
+        ...previous,
+        [currentOrgId]: (previous[currentOrgId] || []).map((request) => (request.id === id ? result.request : request)),
+      }));
+      showNotice('success', `Request ${status.toLowerCase()}.`);
+    } catch (error: any) {
+      showNotice('error', error.message || 'Unable to update request');
+      throw error;
+    }
   };
 
-  // Filter requests based on Scope (My vs Team)
+  const handleAiUsage = (aiUsed?: number, _aiLimit?: number) => {
+    if (!currentOrgId || aiUsed === undefined) return;
+
+    setOrgs((previous) => {
+      let changed = false;
+      const next = previous.map((organization) => {
+        if (organization.id !== currentOrgId) return organization;
+        if (organization.aiUsed === aiUsed) return organization;
+        changed = true;
+        return { ...organization, aiUsed };
+      });
+
+      return changed ? next : previous;
+    });
+  };
+
+  const handlePanelToggle = () => {
+    setViewMode((current) => (current === 'LIST' ? 'DISPATCH' : 'LIST'));
+  };
+
+  const currentOrg = useMemo(() => orgs.find((organization) => organization.id === currentOrgId) || null, [orgs, currentOrgId]);
+  const currentMembership = useMemo(
+    () => memberships.find((membership) => membership.orgId === currentOrgId) || null,
+    [memberships, currentOrgId]
+  );
+  const currentUser: User | null = useMemo(() => {
+    if (!authUser || !currentOrg || !currentMembership) return null;
+
+    return {
+      id: authUser.id,
+      name: authUser.name,
+      avatar: authUser.avatar || 'https://i.pravatar.cc/100?u=pulseshift',
+      role: currentMembership.role,
+      orgId: currentOrg.id,
+      title: authUser.title,
+    };
+  }, [authUser, currentOrg, currentMembership]);
+
+  const currentRequests = (currentOrgId && requestsByOrg[currentOrgId]) || [];
+  const usersForOrg = (currentOrgId && orgUsers[currentOrgId]) || [];
+  const todayKey = formatDateKey(new Date());
+  const aiEnabled = currentOrg ? currentOrg.plan !== 'ESSENTIALS' && currentOrg.aiUsed < currentOrg.aiCredits : false;
+  const aiDisabledReason = currentOrg?.plan === 'ESSENTIALS'
+    ? 'AI conflict checks are available on Team plans and above.'
+    : 'You have used all AI credits for this workspace.';
+
   const visibleRequests = scope === 'MY'
-    ? currentRequests.filter(r => r.userId === currentUser.id)
+    ? currentRequests.filter((request) => request.userId === currentUser?.id)
     : currentRequests;
-
   const visibleUsers = scope === 'MY'
-    ? orgUsers.filter(u => u.id === currentUser.id)
-    : orgUsers;
+    ? usersForOrg.filter((user) => user.id === currentUser?.id)
+    : usersForOrg;
+
+  const usageSummary = useMemo(
+    () => ({
+      requestsUsed: currentRequests.length,
+      requestLimit: currentOrg?.requestLimit || 0,
+      aiUsed: currentOrg?.aiUsed || 0,
+      aiLimit: currentOrg?.aiCredits || 0,
+    }),
+    [currentOrg, currentRequests.length]
+  );
+
+  const workspaceMetrics = useMemo(() => {
+    const pendingApprovals = currentRequests.filter((request) => request.status === RequestStatus.PENDING).length;
+    const scheduledToday = currentRequests.filter(
+      (request) => request.status === RequestStatus.APPROVED && request.date === todayKey
+    ).length;
+    const upcomingLeave = currentRequests.filter(
+      (request) =>
+        request.status === RequestStatus.APPROVED &&
+        request.type !== RequestType.WORK &&
+        request.date >= todayKey
+    ).length;
+
+    return {
+      teamMembers: usersForOrg.length,
+      pendingApprovals,
+      scheduledToday,
+      upcomingLeave,
+    };
+  }, [currentRequests, todayKey, usersForOrg.length]);
+
+  if (bootstrapping) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="rounded-3xl border border-slate-200 bg-white/85 px-6 py-5 text-sm font-semibold text-slate-700 shadow-lg backdrop-blur">
+          Restoring workspace...
+        </div>
+      </div>
+    );
+  }
+
+  if (!token || !authUser || !currentOrgId || !currentUser || !currentOrg) {
+    return <AuthCard onLogin={handleLogin} onSignup={handleSignup} loading={loading} error={authError} />;
+  }
 
   return (
-    <Layout
-      currentUser={currentUser}
-      currentOrg={currentOrg}
-      organizations={organizations}
-      onOrgChange={handleOrgChange}
-      onLogout={() => {}}
-      onSwitchRole={switchRole}
-      viewMode={viewMode}
-      onViewModeChange={setViewMode}
-      timeView={timeView}
-      onTimeViewChange={setTimeView}
-      scope={scope}
-      onScopeChange={setScope}
-      currentDate={currentDate}
-      onDateChange={setCurrentDate}
-      onCreateClick={() => handleOpenRequestModal(currentDate)}
-      usageSummary={{
-        requestsUsed: currentRequests.length,
-        requestLimit: currentOrg.requestLimit,
-        aiUsed: currentOrg.aiUsed,
-        aiLimit: currentOrg.aiCredits,
-      }}
-      onUpgradePlan={() => alert('Upgrade flow coming soon.')}
-    >
+    <>
+      <Layout
+        currentUser={currentUser}
+        currentOrg={currentOrg}
+        organizations={orgs}
+        isAdmin={currentMembership?.role === Role.ADMIN}
+        onLogout={handleLogout}
+        onPanelToggle={handlePanelToggle}
+        onOrgChange={handleOrgChange}
+        onRefresh={refreshCurrentOrg}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        timeView={timeView}
+        onTimeViewChange={setTimeView}
+        scope={scope}
+        onScopeChange={setScope}
+        currentDate={currentDate}
+        onDateChange={setCurrentDate}
+        onCreateClick={() => handleOpenRequestModal(currentDate)}
+        usageSummary={usageSummary}
+        workspaceMetrics={workspaceMetrics}
+        onUpgradePlan={() => setIsPlanModalOpen(true)}
+      >
+        {notice && (
+          <div className="pointer-events-none absolute right-4 top-4 z-40">
+            <div
+              className={`rounded-2xl border px-4 py-3 text-sm shadow-lg ${
+                notice.type === 'success'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : notice.type === 'error'
+                    ? 'border-rose-200 bg-rose-50 text-rose-700'
+                    : 'border-sky-200 bg-sky-50 text-sky-700'
+              }`}
+            >
+              {notice.message}
+            </div>
+          </div>
+        )}
 
-      {/* Admin view uses approval queue, otherwise nurse view or calendar */}
-      {currentUser.role === Role.ADMIN && viewMode === 'LIST' ? (
-        <div className="p-8">
-          <AdminPanel
-            requests={currentRequests}
-            onUpdateRequest={(id, status, response) => {
-              updateRequestsForCurrentOrg(prev =>
-                prev.map(r => (r.id === id ? { ...r, status, adminResponse: response } : r))
-              );
-            }}
+        {loading && (
+          <div className="absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-xs font-semibold text-slate-600 shadow-sm">
+            Syncing workspace...
+          </div>
+        )}
+
+        {currentMembership?.role === Role.ADMIN && viewMode === 'LIST' ? (
+          <div className="p-5 md:p-8">
+            <AdminPanel
+              requests={currentRequests}
+              onUpdateRequest={handleUpdateRequestStatus}
+              onAiUsage={handleAiUsage}
+              aiEnabled={aiEnabled}
+              aiDisabledReason={aiDisabledReason}
+            />
+          </div>
+        ) : viewMode === 'LIST' ? (
+          <div className="p-5 md:p-8">
+            <MyShifts
+              requests={currentRequests.filter((request) => request.userId === currentUser.id)}
+              onEdit={(request) => {
+                const [year, month, day] = request.date.split('-').map(Number);
+                handleOpenRequestModal(new Date(year, month - 1, day));
+              }}
+              onCancel={handleCancelMyRequest}
+            />
+          </div>
+        ) : (
+          <Calendar
+            currentDate={currentDate}
+            requests={visibleRequests}
+            viewMode={viewMode}
+            timeView={timeView}
+            users={visibleUsers}
+            workspaceLabel={currentOrg.name}
+            selectedDate={selectedDate}
+            onDateClick={(date) => setSelectedDate(date)}
+            onMonthChange={handleMonthChange}
+            onRequestOpen={handleOpenRequestModal}
           />
-        </div>
-      ) : viewMode === 'LIST' ? (
-        <div className="p-8">
-          <MyShifts
-            requests={currentRequests.filter(r => r.userId === currentUser.id)}
-            onEdit={(req) => {
-              const [y, m, d] = req.date.split('-').map(Number);
-              handleOpenRequestModal(new Date(y, m - 1, d));
+        )}
+
+        {isModalOpen && selectedDate && currentOrg && (
+          <RequestModal
+            orgId={currentOrg.id}
+            date={selectedDate}
+            existingRequest={editingRequest}
+            onClose={() => {
+              setIsModalOpen(false);
+              setEditingRequest(undefined);
             }}
-            onCancel={(id) => updateRequestsForCurrentOrg(prev => prev.filter(r => r.id !== id))}
+            onSubmit={handleSubmitRequest}
+            onDelete={handleDeleteRequest}
+            aiEnabled={aiEnabled}
+            aiDisabledReason={aiDisabledReason}
+            onAiUsage={handleAiUsage}
           />
-        </div>
-      ) : (
-        <Calendar
-          currentDate={currentDate}
-          requests={visibleRequests}
-          viewMode={viewMode}
-          timeView={timeView}
-          users={visibleUsers}
-          selectedDate={selectedDate}
-          onDateClick={(d) => setSelectedDate(d)}
-          onMonthChange={handleMonthChange}
-          onRequestOpen={handleOpenRequestModal}
+        )}
+      </Layout>
+
+      {isPlanModalOpen && currentOrg && (
+        <PlanModal
+          organization={currentOrg}
+          usageSummary={usageSummary}
+          onClose={() => setIsPlanModalOpen(false)}
         />
       )}
-
-      {isModalOpen && selectedDate && (
-        <RequestModal
-          date={selectedDate}
-          existingRequest={editingRequest}
-          onClose={() => {
-            setIsModalOpen(false);
-            setEditingRequest(undefined);
-          }}
-          onSubmit={handleSubmitRequest}
-          onDelete={handleDeleteRequest}
-          aiEnabled={aiEnabled}
-          aiDisabledReason={aiDisabledReason}
-          onAiUsage={handleAiUsage}
-        />
-      )}
-    </Layout>
+    </>
   );
 };
 

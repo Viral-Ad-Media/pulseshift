@@ -1,19 +1,34 @@
 {
   "name": "pulseshift",
+  "description": "Supabase-backed healthcare scheduling SaaS for workforce requests, approvals, and AI-assisted staffing decisions.",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "vite",
+    "dev:client": "vite",
+    "dev:server": "npm --prefix ../pulseshift-server run dev",
     "build": "vite build",
-    "preview": "vite preview"
+    "check": "tsc --noEmit",
+    "preview": "vite preview",
+    "server": "npm --prefix ../pulseshift-server run start"
   },
   "dependencies": {
-    "react": "^19.2.0",
     "@google/genai": "^1.30.0",
+    "@supabase/supabase-js": "^2.57.4",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",

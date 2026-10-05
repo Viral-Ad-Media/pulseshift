@@ -1,285 +1,39 @@
 # PulseShift
 
-PulseShift is a multi-tenant healthcare scheduling SaaS for managing shift requests, PTO, sick leave, approvals, workspace plans, and AI-assisted staffing decisions.
+React/TypeScript workspace for healthcare date-only work, PTO and sick requests, private leave notes, administrator decisions and staff invitations. The companion API is `Viral-Ad-Media/pulseshift-server`.
 
-This version uses Supabase instead of local SQLite while keeping the existing Express API and frontend flow intact.
+## Run locally
 
-## What PulseShift Does
+Use Node 22.22.2 from `.nvmrc` or supported Node 24.15+. Run `npm ci`, copy `.env.example` to `.env.local` and point `VITE_API_URL` at the API. `npm run dev` starts Vite on port 3000. Start the sibling API with `npm run dev:server` after following its setup and migration instructions.
 
-- Staff users submit work, PTO, and sick requests
-- Admin users review and approve requests from a centralized queue
-- Organizations are isolated as separate workspaces
-- Plan tiers enforce request volume and AI credit usage per workspace
-- Gemini-powered checks help flag staffing pressure before submission
-- Gemini-powered response drafting helps admins communicate decisions faster
+`npm run build` type-checks before producing the `dist` static bundle. Deploy with `VITE_API_URL` set at build time to the HTTPS API URL and serve `dist`. A missing production API URL displays a configuration error; it never silently directs users to localhost. Tailwind 4 utilities are compiled by the local Vite plugin. No remote runtime styling/compiler script is loaded.
 
-## Stack
+Font Awesome CSS and the Manrope font are optional external presentation assets; normal text and native controls remain functional if they are blocked. API secrets and service-role credentials must never be provided as VITE variables.
 
-- Frontend: React 19, TypeScript, Vite
-- Styling: Tailwind CDN + custom CSS
-- Backend: Express
-- Database: Supabase Postgres via `@supabase/supabase-js`
-- Auth: App-managed JWT + bcrypt
-- AI: Google Gemini through a server-side proxy
+## Coordinated API upgrade
 
-## Architecture
+Deploy with the companion API audit-fix pull request after applying its `supabase/migrations/20261005_audit.sql`. Old APIs do not supply versions or the invitation endpoints; the frontend is not compatible with an unmigrated API. Old sessions require sign-in again after the JWT changes.
 
-### Frontend
+There are no prefilled demo credentials. Create a workspace using a password of at least twelve characters. An invitation link preloads its token at signup; existing account holders can select sign-in to accept that invitation.
 
-- `App.tsx`: session bootstrap, workspace hydration, request lifecycle, view switching
-- `components/Layout.tsx`: SaaS shell, metrics, usage, workspace switching
-- `components/Calendar.tsx`: dispatch/day and annual calendar views
-- `components/AdminPanel.tsx`: approval queue
-- `components/MyShifts.tsx`: self-service request history
-- `components/RequestModal.tsx`: request creation/editing with AI checks
-- `components/PlanModal.tsx`: plan comparison and billing CTA
+## Teams and privacy
 
-### Backend
+The Team button lets admins create and revoke email-bound invitations, change roles and remove members. Copy the generated link and share it manually with the invited person. Invitations expire after seven days, are single-use and reserve a seat. Existing signed-in users can also paste an invitation token to join another workspace. The API protects the last administrator and enforces seats.
 
-- `../pulseshift-server/server.js`: API routes, auth, tenant enforcement, request CRUD, AI proxy, Supabase-backed seed bootstrap
-- `../pulseshift-server/supabase.js`: Supabase server client configuration
+Coworkers' approved date-only availability is visible in dispatch; private notes and replies are supplied only to the owner and administrators. Clicking a coworker's request opens that request's details. It never opens the viewer's own request on that date.
 
-### Database
+## Scheduling and plans
 
-- `../pulseshift-server/supabase/schema.sql`: schema you run in Supabase before starting the API
+Dispatch displays date-only coverage. No shift start/end times exist in the current model, so no timed shift blocks are invented. Scheduled Today counts approved WORK requests only. Today uses the active workspace timezone. Request forms preserve drafts on save failure and prevent duplicate submits. Requests and decisions send an expected version; a conflict requires refreshing before retrying.
 
-## Supabase Data Model
+New Team trials run for fourteen days and then use Essentials entitlements. Request limits are active retained-record capacity (40/120/500), not monthly throughput. AI allowances are lifetime workspace credits (0/80/200), not a renewable subscription allocation. Each provider attempt consumes one reserved credit, including failed attempts; no provider configuration means no charge. AI insights are advisory and do not guarantee staffing availability.
 
-PulseShift stores application data in four main tables:
+The plan modal compares tiers and opens a sales email. Automatic payment collection, billing changes, password recovery and notification email delivery are not integrated. Approval replies are visible in the app.
 
-- `organizations`: workspace plan, limits, seats, timezone, trial metadata
-- `users`: app users, password hashes, profile metadata
-- `memberships`: user-to-organization role mapping
-- `requests`: per-user staffing requests scoped to an organization
+## Checks
 
-## Migration Change
+- `npm test`: component and state regression tests with Vitest/Testing Library.
+- `npm run build`: TypeScript check and production asset compilation.
+- `npm audit --audit-level=low`: dependency advisory scan.
 
-The app now uses Supabase instead of the previous SQLite database layer.
-
-What changed:
-
-- Removed local `better-sqlite3` persistence
-- Added a dedicated Supabase server client
-- Replaced synchronous SQL queries with async Supabase queries
-- Added `../pulseshift-server/supabase/schema.sql` for database setup
-- Kept the current Express routes and JWT auth model stable
-- Preserved seeded demo accounts by auto-seeding empty Supabase tables at startup
-
-## Local Setup
-
-### Prerequisites
-
-- Node.js 18+
-- npm
-- A Supabase project
-
-### 1. Install dependencies
-
-```bash
-npm install
-```
-
-### 2. Create Supabase tables
-
-Open your Supabase project SQL editor and run:
-
-```sql
--- paste the contents of ../pulseshift-server/supabase/schema.sql
-```
-
-Or copy/paste the file directly from:
-
-- `../pulseshift-server/supabase/schema.sql`
-
-### 3. Configure environment variables
-
-Create `.env.local` for frontend development:
-
-```bash
-VITE_API_URL=http://localhost:4000
-```
-
-Export backend variables in the same shell where you start the API:
-
-```bash
-JWT_SECRET=replace-this-for-local-development
-CORS_ORIGIN=http://localhost:3000
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-GEMINI_API_KEY=
-```
-
-Example:
-
-```bash
-export JWT_SECRET="replace-this-for-local-development"
-export CORS_ORIGIN="http://localhost:3000"
-export SUPABASE_URL="https://your-project.supabase.co"
-export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
-export GEMINI_API_KEY=""
-```
-
-You can also keep the same values in `.env.example` as a reference file, but the backend still needs those variables exported into the process environment unless you use an external env loader.
-
-Frontend environment variable:
-
-```bash
-VITE_API_URL=http://localhost:4000
-```
-
-Important:
-
-- `SUPABASE_SERVICE_ROLE_KEY` must stay server-side only
-- do not expose the service role key in the browser
-- `GEMINI_API_KEY` is optional; AI routes fall back gracefully when it is missing
-
-### 4. Start the backend
-
-```bash
-npm run dev:server
-```
-
-On first startup, the API checks that the Supabase tables exist and seeds demo data if the tables are empty.
-
-### 5. Start the frontend
-
-```bash
-npm run dev:client
-```
-
-Frontend: `http://localhost:3000`  
-Backend: `http://localhost:4000`
-
-## Demo Accounts
-
-The backend seeds demo tenants automatically when the `users` table is empty.
-
-### Summit Health Network
-
-- Admin: `bruce@summit.com` / `password123`
-- Nurse: `jake@summit.com` / `password123`
-
-### Lumen Home Care
-
-- Admin: `carla@lumen.com` / `password123`
-- Nurse: `devon@lumen.com` / `password123`
-
-## Environment Variables
-
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `VITE_API_URL` | frontend | Base URL for the Express API |
-| `JWT_SECRET` | backend | Signs app JWTs |
-| `CORS_ORIGIN` | backend | Allowed frontend origin(s) |
-| `SUPABASE_URL` | backend | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | backend | Elevated server-side database access |
-| `GEMINI_API_KEY` | optional | Enables AI analysis and response drafting |
-
-## API Surface
-
-### Auth
-
-- `POST /auth/signup`
-- `POST /auth/login`
-- `GET /me`
-
-### Workspace Data
-
-- `GET /orgs/:orgId/full`
-- `GET /orgs/:orgId/requests`
-- `POST /orgs/:orgId/requests`
-- `PUT /orgs/:orgId/requests/:requestId`
-- `DELETE /orgs/:orgId/requests/:requestId`
-
-### AI
-
-- `POST /ai/analyze`
-- `POST /ai/respond`
-
-### Health
-
-- `GET /health`
-
-## Usage and Plan Logic
-
-Three plan tiers are modeled in the backend:
-
-| Tier | Request Limit | AI Credits |
-| --- | ---: | ---: |
-| `ESSENTIALS` | 40 | 0 |
-| `TEAM` | 120 | 80 |
-| `BUSINESS` | 500 | 200 |
-
-Rules enforced server-side:
-
-- workspace request limits
-- workspace AI credit limits
-- per-user uniqueness for one request per org/date
-- role-based admin approval permissions
-- membership checks for every organization-scoped route
-
-## Supabase Notes
-
-- PulseShift uses Supabase as the database layer, not as the auth provider
-- The app still manages its own JWT sessions and bcrypt password hashes
-- The backend uses the service-role key because all database access is mediated by the server
-- `../pulseshift-server/supabase/schema.sql` enables RLS on tables, but the service-role key bypasses RLS for trusted backend access
-
-## Useful Scripts
-
-```bash
-npm run dev:client
-npm run dev:server
-npm run build
-npm run check
-npm run preview
-```
-
-## Project Structure
-
-```text
-.
-├── .env.example
-├── App.tsx
-├── components/
-│   ├── AdminPanel.tsx
-│   ├── Calendar.tsx
-│   ├── Layout.tsx
-│   ├── MyShifts.tsx
-│   ├── PlanModal.tsx
-│   └── RequestModal.tsx
-├── ../pulseshift-server/
-│   ├── server.js
-│   ├── supabase.js
-│   └── supabase/
-│       └── schema.sql
-├── services/
-│   ├── api.ts
-│   └── gemini.ts
-├── index.css
-├── index.html
-├── package.json
-├── README.md
-└── types.ts
-```
-
-## Known Gaps
-
-- No Stripe or subscription billing integration yet
-- No email delivery or notifications yet
-- No enterprise SSO or SCIM yet
-- No automated tests yet
-- No deployment manifests yet
-- No transactional signup workflow beyond simple server-side rollback cleanup
-
-## Recommended Next Steps
-
-1. Add automated tests for auth, membership enforcement, and request CRUD.
-2. Add database migrations or Supabase CLI workflow for schema versioning.
-3. Move signup and multi-step writes into Postgres functions or transactional workflows.
-4. Add notification delivery for approvals and rejections.
-5. Introduce real billing and subscription management.
-
-## Summary
-
-PulseShift now uses Supabase as its hosted database layer while keeping the app’s current multi-tenant scheduling workflow, plan enforcement, AI features, and frontend UX intact.
+CI performs these checks for every pull request. Backend tests separately cover actual HTTP authorization/privacy, onboarding and PostgreSQL transaction functions.

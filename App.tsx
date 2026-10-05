@@ -1,25 +1,49 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Layout } from './components/Layout';
-import { Calendar } from './components/Calendar';
-import { RequestModal } from './components/RequestModal';
-import { AdminPanel } from './components/AdminPanel';
-import { MyShifts } from './components/MyShifts';
-import { PlanModal } from './components/PlanModal';
-import { Organization, RequestStatus, RequestType, Role, ShiftRequest, User } from './types';
-import { api, setAuthToken } from './services/api';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Layout } from "./components/Layout";
+import { Calendar } from "./components/Calendar";
+import { RequestModal } from "./components/RequestModal";
+import { AdminPanel } from "./components/AdminPanel";
+import { MyShifts } from "./components/MyShifts";
+import { PlanModal } from "./components/PlanModal";
+import {
+  Organization,
+  RequestStatus,
+  RequestType,
+  Role,
+  ShiftRequest,
+  User,
+} from "./types";
+import { api, setAuthToken } from "./services/api";
+import { TeamModal } from "./components/TeamModal";
+import { Modal } from "./components/Modal";
+import { formatDateKey, workspaceToday, dateFromKey } from "./services/dates";
+import { mergeRequest } from "./services/requests";
 
 type Membership = { orgId: string; role: Role };
-type Notice = { type: 'success' | 'error' | 'info'; message: string };
-type SessionUser = { id: string; name: string; email?: string; avatar?: string; title?: string };
-type SignupPayload = { name: string; orgName: string; email: string; password: string; timezone: string };
+type Notice = { type: "success" | "error" | "info"; message: string };
+type SessionUser = {
+  id: string;
+  name: string;
+  email?: string;
+  avatar?: string;
+  title?: string;
+};
+type SignupPayload = {
+  name: string;
+  orgName: string;
+  email: string;
+  password: string;
+  timezone: string;
+  inviteToken?: string;
+};
 
-const TOKEN_KEY = 'pulseshift_token';
-const WORKSPACE_KEY = 'pulseshift_workspace';
+const TOKEN_KEY = "pulseshift_token";
+const WORKSPACE_KEY = "pulseshift_workspace";
 
-const formatDateKey = (date: Date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-
-const resolvePreferredOrg = (memberships: Membership[], preferredOrgId: string | null) =>
+const resolvePreferredOrg = (
+  memberships: Membership[],
+  preferredOrgId: string | null,
+) =>
   memberships.some((membership) => membership.orgId === preferredOrgId)
     ? preferredOrgId
     : memberships[0]?.orgId || null;
@@ -30,31 +54,41 @@ const AuthCard: React.FC<{
   loading: boolean;
   error: string | null;
 }> = ({ onLogin, onSignup, loading, error }) => {
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
-  const [name, setName] = useState('');
-  const [orgName, setOrgName] = useState('');
-  const [email, setEmail] = useState('bruce@summit.com');
-  const [password, setPassword] = useState('password123');
+  const [mode, setMode] = useState<"login" | "signup">(() =>
+    window.location.hash.includes("invite=") ? "signup" : "login",
+  );
+  const [inviteToken, setInviteToken] = useState(
+    () =>
+      new URLSearchParams(window.location.hash.slice(1)).get("invite") || "",
+  );
+  const [name, setName] = useState("");
+  const [orgName, setOrgName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   useEffect(() => {
-    if (mode === 'login') {
-      setName('');
-      setOrgName('');
-      setEmail('bruce@summit.com');
-      setPassword('password123');
+    if (mode === "login") {
+      setName("");
+      setOrgName("");
+      setEmail("");
+      setPassword("");
       return;
     }
 
-    setEmail('');
-    setPassword('');
+    setEmail("");
+    setPassword("");
   }, [mode]);
 
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago';
+  const timezone =
+    Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Chicago";
   const isDisabled =
     loading ||
     !email.trim() ||
     !password.trim() ||
-    (mode === 'signup' && (!name.trim() || !orgName.trim()));
+    (mode === "signup" &&
+      (!name.trim() ||
+        (!inviteToken && !orgName.trim()) ||
+        password.length < 12));
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-transparent px-4 py-10">
@@ -68,29 +102,25 @@ const AuthCard: React.FC<{
             Healthcare scheduling that feels like a real SaaS workspace.
           </h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-slate-300">
-            Manage multi-tenant workspaces, staff requests, AI-assisted approvals, usage limits, and plan upgrades
-            from one scheduling surface built for care teams.
+            Manage multi-tenant workspaces, staff requests, AI-assisted
+            approvals, usage limits, and plan upgrades from one scheduling
+            surface built for care teams.
           </p>
 
           <div className="mt-10 grid gap-4">
             {[
-              'Multi-organization auth and workspace switching',
-              'Server-side plan limits and AI credit metering',
-              'Approval flows for PTO, sick leave, and work coverage',
+              "Multi-organization auth and workspace switching",
+              "Server-side plan limits and AI credit metering",
+              "Approval flows for PTO, sick leave, and work coverage",
             ].map((item) => (
-              <div key={item} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-200">
+              <div
+                key={item}
+                className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-200"
+              >
                 <i className="fa-solid fa-check text-emerald-400"></i>
                 <span>{item}</span>
               </div>
             ))}
-          </div>
-
-          <div className="mt-auto rounded-3xl border border-sky-400/20 bg-sky-400/10 p-5">
-            <p className="text-xs font-bold uppercase tracking-[0.24em] text-sky-300">Demo access</p>
-            <div className="mt-4 space-y-2 text-sm text-slate-100">
-              <p>Admin: bruce@summit.com / password123</p>
-              <p>Nurse: jake@summit.com / password123</p>
-            </div>
           </div>
         </section>
 
@@ -104,15 +134,17 @@ const AuthCard: React.FC<{
 
           <div className="mt-6">
             <p className="text-sm font-bold uppercase tracking-[0.28em] text-sky-600">
-              {mode === 'login' ? 'Welcome back' : 'Create workspace'}
+              {mode === "login" ? "Welcome back" : "Create workspace"}
             </p>
             <h2 className="mt-3 text-3xl font-extrabold text-slate-950">
-              {mode === 'login' ? 'Sign in to your staffing workspace' : 'Launch a new scheduling workspace'}
+              {mode === "login"
+                ? "Sign in to your staffing workspace"
+                : "Launch a new scheduling workspace"}
             </h2>
             <p className="mt-3 text-sm leading-6 text-slate-500">
-              {mode === 'login'
-                ? 'Use the seeded demo accounts or sign in with an existing organization membership.'
-                : `We will create a Team trial workspace using your browser timezone: ${timezone}.`}
+              {mode === "login"
+                ? "Sign in with your workspace account."
+                : `Start a Team trial or join an invited workspace. Browser timezone: ${timezone}.`}
             </p>
           </div>
 
@@ -123,10 +155,12 @@ const AuthCard: React.FC<{
           )}
 
           <div className="mt-8 space-y-5">
-            {mode === 'signup' && (
+            {mode === "signup" && (
               <>
                 <label className="block space-y-2">
-                  <span className="text-sm font-semibold text-slate-700">Your name</span>
+                  <span className="text-sm font-semibold text-slate-700">
+                    Your name
+                  </span>
                   <input
                     value={name}
                     onChange={(event) => setName(event.target.value)}
@@ -135,20 +169,38 @@ const AuthCard: React.FC<{
                   />
                 </label>
                 <label className="block space-y-2">
-                  <span className="text-sm font-semibold text-slate-700">Workspace name</span>
+                  <span className="text-sm font-semibold text-slate-700">
+                    {inviteToken
+                      ? "Joining an invited workspace"
+                      : "Workspace name"}
+                  </span>
                   <input
+                    disabled={Boolean(inviteToken)}
                     value={orgName}
                     onChange={(event) => setOrgName(event.target.value)}
                     className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
                     placeholder="Northstar Clinic"
                   />
                 </label>
+                <label className="block space-y-2">
+                  <span className="text-sm font-semibold text-slate-700">
+                    Invitation token (optional)
+                  </span>
+                  <input
+                    value={inviteToken}
+                    onChange={(event) => setInviteToken(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3"
+                  />
+                </label>
               </>
             )}
 
             <label className="block space-y-2">
-              <span className="text-sm font-semibold text-slate-700">Email</span>
+              <span className="text-sm font-semibold text-slate-700">
+                Email
+              </span>
               <input
+                type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
@@ -157,37 +209,57 @@ const AuthCard: React.FC<{
             </label>
 
             <label className="block space-y-2">
-              <span className="text-sm font-semibold text-slate-700">Password</span>
+              <span className="text-sm font-semibold text-slate-700">
+                Password
+              </span>
               <input
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
-                placeholder="••••••••"
+                minLength={mode === "signup" ? 12 : undefined}
+                placeholder={
+                  mode === "signup" ? "At least 12 characters" : "Password"
+                }
               />
             </label>
           </div>
 
           <button
             onClick={() => {
-              if (mode === 'login') {
+              if (mode === "login") {
                 onLogin(email, password);
                 return;
               }
 
-              onSignup({ name, orgName, email, password, timezone });
+              onSignup({
+                name,
+                orgName,
+                email,
+                password,
+                timezone,
+                inviteToken: inviteToken || undefined,
+              });
             }}
             disabled={isDisabled}
             className="mt-8 w-full rounded-2xl bg-slate-950 px-4 py-4 text-sm font-semibold text-white shadow-lg shadow-slate-950/10 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? 'Working...' : mode === 'login' ? 'Sign in' : 'Create workspace'}
+            {loading
+              ? "Working..."
+              : mode === "login"
+                ? "Sign in"
+                : "Create workspace"}
           </button>
 
           <button
-            onClick={() => setMode((current) => (current === 'login' ? 'signup' : 'login'))}
+            onClick={() =>
+              setMode((current) => (current === "login" ? "signup" : "login"))
+            }
             className="mt-4 w-full text-center text-sm font-semibold text-slate-600 hover:text-slate-900"
           >
-            {mode === 'login' ? 'Need a workspace? Create one' : 'Already have an account? Sign in'}
+            {mode === "login"
+              ? "Need a workspace? Create one"
+              : "Already have an account? Sign in"}
           </button>
         </section>
       </div>
@@ -196,26 +268,37 @@ const AuthCard: React.FC<{
 };
 
 const App: React.FC = () => {
+  const sessionGeneration = useRef(0);
+  const saveInProgress = useRef(false);
+  const switchGeneration = useRef(0);
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+  const [detailRequest, setDetailRequest] = useState<ShiftRequest | null>(null);
   const [token, setTokenState] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<SessionUser | null>(null);
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [currentOrgId, setCurrentOrgId] = useState<string | null>(null);
   const [orgUsers, setOrgUsers] = useState<Record<string, User[]>>({});
-  const [requestsByOrg, setRequestsByOrg] = useState<Record<string, ShiftRequest[]>>({});
+  const [requestsByOrg, setRequestsByOrg] = useState<
+    Record<string, ShiftRequest[]>
+  >({});
   const [loading, setLoading] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
 
-  const [viewMode, setViewMode] = useState<'LIST' | 'CALENDAR' | 'DISPATCH'>('DISPATCH');
-  const [timeView, setTimeView] = useState<'DAY' | 'MONTH'>('DAY');
-  const [scope, setScope] = useState<'MY' | 'TEAM'>('TEAM');
+  const [viewMode, setViewMode] = useState<"LIST" | "CALENDAR" | "DISPATCH">(
+    "DISPATCH",
+  );
+  const [timeView, setTimeView] = useState<"DAY" | "MONTH">("DAY");
+  const [scope, setScope] = useState<"MY" | "TEAM">("TEAM");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [editingRequest, setEditingRequest] = useState<ShiftRequest | undefined>(undefined);
+  const [editingRequest, setEditingRequest] = useState<
+    ShiftRequest | undefined
+  >(undefined);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -224,16 +307,24 @@ const App: React.FC = () => {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
-  const showNotice = (type: Notice['type'], message: string) => setNotice({ type, message });
+  const showNotice = (type: Notice["type"], message: string) =>
+    setNotice({ type, message });
 
   const loadOrg = async (orgId: string) => {
+    const generation = sessionGeneration.current;
     const response = await api.get(`/orgs/${orgId}/full`);
+    if (generation !== sessionGeneration.current) return;
     setOrgs((previous) => {
-      const others = previous.filter((organization) => organization.id !== response.org.id);
+      const others = previous.filter(
+        (organization) => organization.id !== response.org.id,
+      );
       return [...others, response.org];
     });
     setOrgUsers((previous) => ({ ...previous, [orgId]: response.users }));
-    setRequestsByOrg((previous) => ({ ...previous, [orgId]: response.requests }));
+    setRequestsByOrg((previous) => ({
+      ...previous,
+      [orgId]: response.requests,
+    }));
   };
 
   const hydrateSession = async (
@@ -243,9 +334,12 @@ const App: React.FC = () => {
       memberships: Membership[];
       orgs: Organization[];
     },
-    preferredOrgId?: string | null
+    preferredOrgId?: string | null,
   ) => {
+    setCurrentOrgId(null);
     setAuthToken(session.token);
+    setOrgUsers({});
+    setRequestsByOrg({});
     localStorage.setItem(TOKEN_KEY, session.token);
     setTokenState(session.token);
     setAuthUser({
@@ -258,21 +352,28 @@ const App: React.FC = () => {
     setMemberships(session.memberships);
     setOrgs(session.orgs);
 
-    const resolvedOrgId = resolvePreferredOrg(session.memberships, preferredOrgId ?? localStorage.getItem(WORKSPACE_KEY));
-    setCurrentOrgId(resolvedOrgId);
+    const resolvedOrgId = resolvePreferredOrg(
+      session.memberships,
+      preferredOrgId ?? localStorage.getItem(WORKSPACE_KEY),
+    );
+    const org = session.orgs.find((o) => o.id === resolvedOrgId);
+    if (org) setCurrentDate(dateFromKey(workspaceToday(org.timezone)));
     if (resolvedOrgId) {
       localStorage.setItem(WORKSPACE_KEY, resolvedOrgId);
       await loadOrg(resolvedOrgId);
+      setCurrentOrgId(resolvedOrgId);
     }
   };
 
   const fetchMe = async (incomingToken?: string) => {
+    const generation = sessionGeneration.current;
     try {
       setLoading(true);
-      const data = await api.get('/me');
+      const data = await api.get("/me");
+      if (generation !== sessionGeneration.current) return;
       await hydrateSession(
         {
-          token: incomingToken || token || '',
+          token: incomingToken || token || "",
           user: {
             id: data.user.id,
             name: data.user.name,
@@ -283,10 +384,17 @@ const App: React.FC = () => {
           memberships: data.memberships,
           orgs: data.orgs,
         },
-        localStorage.getItem(WORKSPACE_KEY)
+        localStorage.getItem(WORKSPACE_KEY),
       );
       setAuthError(null);
     } catch (error: any) {
+      if (generation !== sessionGeneration.current) return;
+      if ((error as any).status !== 401) {
+        setAuthError(
+          error.message || "Unable to load workspace. Retry sign in.",
+        );
+        return;
+      }
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(WORKSPACE_KEY);
       setAuthToken(null);
@@ -297,7 +405,7 @@ const App: React.FC = () => {
       setCurrentOrgId(null);
       setOrgUsers({});
       setRequestsByOrg({});
-      setAuthError(error.message || 'Unable to load account');
+      setAuthError(error.message || "Unable to load account");
     } finally {
       setLoading(false);
     }
@@ -316,34 +424,66 @@ const App: React.FC = () => {
   }, []);
 
   const handleLogin = async (email: string, password: string) => {
+    sessionGeneration.current += 1;
     try {
       setLoading(true);
-      const response = await api.post('/auth/login', { email, password });
+      let response = await api.post("/auth/login", { email, password });
+      const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
+        "invite",
+      );
+      if (invitation) {
+        setAuthToken(response.token);
+        const joined = await api.post("/invitations/accept", {
+          token: invitation,
+        });
+        response = { ...joined, token: response.token };
+        window.history.replaceState(
+          null,
+          "",
+          window.location.pathname + window.location.search,
+        );
+      }
       await hydrateSession(response);
       setAuthError(null);
-      showNotice('success', 'Signed in successfully.');
+      showNotice("success", "Signed in successfully.");
     } catch (error: any) {
-      setAuthError(error.message || 'Login failed');
+      setAuthError(error.message || "Login failed");
     } finally {
       setLoading(false);
     }
   };
 
   const handleSignup = async (payload: SignupPayload) => {
+    sessionGeneration.current += 1;
     try {
       setLoading(true);
-      const response = await api.post('/auth/signup', payload);
+      const response = await api.post("/auth/signup", payload);
       await hydrateSession(response, response.memberships[0]?.orgId || null);
       setAuthError(null);
-      showNotice('success', 'Workspace created. Your Team trial is ready.');
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search,
+      );
+      showNotice(
+        "success",
+        payload.inviteToken
+          ? "You joined the workspace."
+          : "Workspace created. Your Team trial is ready.",
+      );
     } catch (error: any) {
-      setAuthError(error.message || 'Signup failed');
+      setAuthError(error.message || "Signup failed");
     } finally {
       setLoading(false);
     }
   };
 
   const handleLogout = () => {
+    void api.post("/auth/logout").catch(() => {});
+    sessionGeneration.current += 1;
+    switchGeneration.current += 1;
+    setIsTeamModalOpen(false);
+    setDetailRequest(null);
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(WORKSPACE_KEY);
     setAuthToken(null);
@@ -358,9 +498,9 @@ const App: React.FC = () => {
     setEditingRequest(undefined);
     setIsModalOpen(false);
     setIsPlanModalOpen(false);
-    setViewMode('DISPATCH');
-    setTimeView('DAY');
-    setScope('TEAM');
+    setViewMode("DISPATCH");
+    setTimeView("DAY");
+    setScope("TEAM");
     setCurrentDate(new Date());
     setAuthError(null);
     setNotice(null);
@@ -368,21 +508,30 @@ const App: React.FC = () => {
 
   const handleOrgChange = async (orgId: string) => {
     const previousOrgId = currentOrgId;
+    const switchId = ++switchGeneration.current;
 
     try {
       setLoading(true);
-      setScope('TEAM');
+      setScope("TEAM");
+      setIsModalOpen(false);
+      setDetailRequest(null);
+      setIsTeamModalOpen(false);
       setSelectedDate(null);
       setEditingRequest(undefined);
       await loadOrg(orgId);
+      if (switchId !== switchGeneration.current) return;
       setCurrentOrgId(orgId);
+      const organization = orgs.find((o) => o.id === orgId);
+      if (organization)
+        setCurrentDate(dateFromKey(workspaceToday(organization.timezone)));
       localStorage.setItem(WORKSPACE_KEY, orgId);
-      showNotice('info', 'Workspace context updated.');
+      showNotice("info", "Workspace context updated.");
     } catch (error: any) {
+      if (switchId !== switchGeneration.current) return;
       if (previousOrgId) {
         setCurrentOrgId(previousOrgId);
       }
-      showNotice('error', error.message || 'Failed to load workspace');
+      showNotice("error", error.message || "Failed to load workspace");
     } finally {
       setLoading(false);
     }
@@ -394,18 +543,28 @@ const App: React.FC = () => {
     try {
       setLoading(true);
       await loadOrg(currentOrgId);
-      showNotice('info', 'Workspace refreshed.');
+      showNotice("info", "Workspace refreshed.");
     } catch (error: any) {
-      showNotice('error', error.message || 'Unable to refresh workspace');
+      showNotice("error", error.message || "Unable to refresh workspace");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleOpenRequestModal = (date: Date) => {
+  const handleOpenRequestModal = (
+    date: Date,
+    clickedRequest?: ShiftRequest,
+  ) => {
+    if (clickedRequest && clickedRequest.userId !== currentUser?.id) {
+      setDetailRequest(clickedRequest);
+      return;
+    }
     setSelectedDate(date);
     const dateKey = formatDateKey(date);
-    const existing = currentRequests.find((request) => request.userId === currentUser?.id && request.date === dateKey);
+    const existing = currentRequests.find(
+      (request) =>
+        request.userId === currentUser?.id && request.date === dateKey,
+    );
     setEditingRequest(existing);
     setIsModalOpen(true);
   };
@@ -417,23 +576,42 @@ const App: React.FC = () => {
   };
 
   const handleSubmitRequest = async (type: RequestType, notes: string) => {
-    if (!selectedDate || !currentOrgId) return;
+    if (!selectedDate || !currentOrgId || saveInProgress.current) return;
+    saveInProgress.current = true;
+    const generation = sessionGeneration.current;
 
     try {
-      const payload = { date: formatDateKey(selectedDate), type, notes };
+      const payload = {
+        date: formatDateKey(selectedDate),
+        type,
+        notes,
+        version: editingRequest?.version,
+      };
       const response = editingRequest
-        ? await api.put(`/orgs/${currentOrgId}/requests/${editingRequest.id}`, payload)
+        ? await api.put(
+            `/orgs/${currentOrgId}/requests/${editingRequest.id}`,
+            payload,
+          )
         : await api.post(`/orgs/${currentOrgId}/requests`, payload);
-      const nextRequests = editingRequest
-        ? currentRequests.map((request) => (request.id === editingRequest.id ? response.request : request))
-        : [response.request, ...currentRequests];
-      setRequestsByOrg((previous) => ({ ...previous, [currentOrgId]: nextRequests }));
-      showNotice('success', editingRequest ? 'Request updated.' : 'Request submitted.');
-    } catch (error: any) {
-      showNotice('error', error.message || 'Unable to save request');
-    } finally {
+      if (generation !== sessionGeneration.current) return;
+      setRequestsByOrg((previous) => ({
+        ...previous,
+        [currentOrgId]: mergeRequest(
+          previous[currentOrgId] || [],
+          response.request,
+        ),
+      }));
       setIsModalOpen(false);
       setEditingRequest(undefined);
+      showNotice(
+        "success",
+        editingRequest ? "Request updated." : "Request submitted.",
+      );
+    } catch (error: any) {
+      showNotice("error", error.message || "Unable to save request");
+      throw error;
+    } finally {
+      saveInProgress.current = false;
     }
   };
 
@@ -441,17 +619,21 @@ const App: React.FC = () => {
     if (!editingRequest || !currentOrgId) return;
 
     try {
-      await api.del(`/orgs/${currentOrgId}/requests/${editingRequest.id}`);
+      await api.del(`/orgs/${currentOrgId}/requests/${editingRequest.id}`, {
+        version: editingRequest.version,
+      });
       setRequestsByOrg((previous) => ({
         ...previous,
-        [currentOrgId]: (previous[currentOrgId] || []).filter((request) => request.id !== editingRequest.id),
+        [currentOrgId]: (previous[currentOrgId] || []).filter(
+          (request) => request.id !== editingRequest.id,
+        ),
       }));
-      showNotice('success', 'Request removed.');
-    } catch (error: any) {
-      showNotice('error', error.message || 'Unable to delete request');
-    } finally {
       setIsModalOpen(false);
       setEditingRequest(undefined);
+      showNotice("success", "Request removed.");
+    } catch (error: any) {
+      showNotice("error", error.message || "Unable to delete request");
+      throw error;
     }
   };
 
@@ -459,29 +641,47 @@ const App: React.FC = () => {
     if (!currentOrgId) return;
 
     try {
-      await api.del(`/orgs/${currentOrgId}/requests/${requestId}`);
+      const request = currentRequests.find((r) => r.id === requestId);
+      if (!request) return;
+      await api.del(`/orgs/${currentOrgId}/requests/${requestId}`, {
+        version: request.version,
+      });
       setRequestsByOrg((previous) => ({
         ...previous,
-        [currentOrgId]: (previous[currentOrgId] || []).filter((request) => request.id !== requestId),
+        [currentOrgId]: (previous[currentOrgId] || []).filter(
+          (request) => request.id !== requestId,
+        ),
       }));
-      showNotice('success', 'Request canceled.');
+      showNotice("success", "Request canceled.");
     } catch (error: any) {
-      showNotice('error', error.message || 'Unable to cancel request');
+      showNotice("error", error.message || "Unable to cancel request");
     }
   };
 
-  const handleUpdateRequestStatus = async (id: string, status: RequestStatus, response?: string) => {
+  const handleUpdateRequestStatus = async (
+    id: string,
+    status: RequestStatus,
+    response?: string,
+  ) => {
     if (!currentOrgId) return;
 
     try {
-      const result = await api.put(`/orgs/${currentOrgId}/requests/${id}`, { status, adminResponse: response });
+      const request = currentRequests.find((r) => r.id === id);
+      if (!request) return;
+      const result = await api.put(`/orgs/${currentOrgId}/requests/${id}`, {
+        status,
+        adminResponse: response,
+        version: request.version,
+      });
       setRequestsByOrg((previous) => ({
         ...previous,
-        [currentOrgId]: (previous[currentOrgId] || []).map((request) => (request.id === id ? result.request : request)),
+        [currentOrgId]: (previous[currentOrgId] || []).map((request) =>
+          request.id === id ? result.request : request,
+        ),
       }));
-      showNotice('success', `Request ${status.toLowerCase()}.`);
+      showNotice("success", `Request ${status.toLowerCase()}.`);
     } catch (error: any) {
-      showNotice('error', error.message || 'Unable to update request');
+      showNotice("error", error.message || "Unable to update request");
       throw error;
     }
   };
@@ -493,7 +693,7 @@ const App: React.FC = () => {
       let changed = false;
       const next = previous.map((organization) => {
         if (organization.id !== currentOrgId) return organization;
-        if (organization.aiUsed === aiUsed) return organization;
+        if (organization.aiUsed >= aiUsed) return organization;
         changed = true;
         return { ...organization, aiUsed };
       });
@@ -502,14 +702,29 @@ const App: React.FC = () => {
     });
   };
 
-  const handlePanelToggle = () => {
-    setViewMode((current) => (current === 'LIST' ? 'DISPATCH' : 'LIST'));
+  const handleAcceptInvitation = async (inviteToken: string) => {
+    await api.post("/invitations/accept", { token: inviteToken });
+    await fetchMe(token || undefined);
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + window.location.search,
+    );
   };
 
-  const currentOrg = useMemo(() => orgs.find((organization) => organization.id === currentOrgId) || null, [orgs, currentOrgId]);
+  const handlePanelToggle = () => {
+    setViewMode((current) => (current === "LIST" ? "DISPATCH" : "LIST"));
+  };
+
+  const currentOrg = useMemo(
+    () => orgs.find((organization) => organization.id === currentOrgId) || null,
+    [orgs, currentOrgId],
+  );
   const currentMembership = useMemo(
-    () => memberships.find((membership) => membership.orgId === currentOrgId) || null,
-    [memberships, currentOrgId]
+    () =>
+      memberships.find((membership) => membership.orgId === currentOrgId) ||
+      null,
+    [memberships, currentOrgId],
   );
   const currentUser: User | null = useMemo(() => {
     if (!authUser || !currentOrg || !currentMembership) return null;
@@ -517,7 +732,7 @@ const App: React.FC = () => {
     return {
       id: authUser.id,
       name: authUser.name,
-      avatar: authUser.avatar || 'https://i.pravatar.cc/100?u=pulseshift',
+      avatar: authUser.avatar || "https://i.pravatar.cc/100?u=pulseshift",
       role: currentMembership.role,
       orgId: currentOrg.id,
       title: authUser.title,
@@ -526,18 +741,24 @@ const App: React.FC = () => {
 
   const currentRequests = (currentOrgId && requestsByOrg[currentOrgId]) || [];
   const usersForOrg = (currentOrgId && orgUsers[currentOrgId]) || [];
-  const todayKey = formatDateKey(new Date());
-  const aiEnabled = currentOrg ? currentOrg.plan !== 'ESSENTIALS' && currentOrg.aiUsed < currentOrg.aiCredits : false;
-  const aiDisabledReason = currentOrg?.plan === 'ESSENTIALS'
-    ? 'AI conflict checks are available on Team plans and above.'
-    : 'You have used all AI credits for this workspace.';
+  const todayKey = workspaceToday(currentOrg?.timezone || "America/Chicago");
+  const aiEnabled = currentOrg
+    ? currentOrg.plan !== "ESSENTIALS" &&
+      currentOrg.aiUsed < currentOrg.aiCredits
+    : false;
+  const aiDisabledReason =
+    currentOrg?.plan === "ESSENTIALS"
+      ? "AI conflict checks are available on Team plans and above."
+      : "You have used all AI credits for this workspace.";
 
-  const visibleRequests = scope === 'MY'
-    ? currentRequests.filter((request) => request.userId === currentUser?.id)
-    : currentRequests;
-  const visibleUsers = scope === 'MY'
-    ? usersForOrg.filter((user) => user.id === currentUser?.id)
-    : usersForOrg;
+  const visibleRequests =
+    scope === "MY"
+      ? currentRequests.filter((request) => request.userId === currentUser?.id)
+      : currentRequests;
+  const visibleUsers =
+    scope === "MY"
+      ? usersForOrg.filter((user) => user.id === currentUser?.id)
+      : usersForOrg;
 
   const usageSummary = useMemo(
     () => ({
@@ -546,19 +767,24 @@ const App: React.FC = () => {
       aiUsed: currentOrg?.aiUsed || 0,
       aiLimit: currentOrg?.aiCredits || 0,
     }),
-    [currentOrg, currentRequests.length]
+    [currentOrg, currentRequests.length],
   );
 
   const workspaceMetrics = useMemo(() => {
-    const pendingApprovals = currentRequests.filter((request) => request.status === RequestStatus.PENDING).length;
+    const pendingApprovals = currentRequests.filter(
+      (request) => request.status === RequestStatus.PENDING,
+    ).length;
     const scheduledToday = currentRequests.filter(
-      (request) => request.status === RequestStatus.APPROVED && request.date === todayKey
+      (request) =>
+        request.status === RequestStatus.APPROVED &&
+        request.type === RequestType.WORK &&
+        request.date === todayKey,
     ).length;
     const upcomingLeave = currentRequests.filter(
       (request) =>
         request.status === RequestStatus.APPROVED &&
         request.type !== RequestType.WORK &&
-        request.date >= todayKey
+        request.date >= todayKey,
     ).length;
 
     return {
@@ -580,7 +806,14 @@ const App: React.FC = () => {
   }
 
   if (!token || !authUser || !currentOrgId || !currentUser || !currentOrg) {
-    return <AuthCard onLogin={handleLogin} onSignup={handleSignup} loading={loading} error={authError} />;
+    return (
+      <AuthCard
+        onLogin={handleLogin}
+        onSignup={handleSignup}
+        loading={loading}
+        error={authError}
+      />
+    );
   }
 
   return (
@@ -591,6 +824,7 @@ const App: React.FC = () => {
         organizations={orgs}
         isAdmin={currentMembership?.role === Role.ADMIN}
         onLogout={handleLogout}
+        onManageTeam={() => setIsTeamModalOpen(true)}
         onPanelToggle={handlePanelToggle}
         onOrgChange={handleOrgChange}
         onRefresh={refreshCurrentOrg}
@@ -611,11 +845,11 @@ const App: React.FC = () => {
           <div className="pointer-events-none absolute right-4 top-4 z-40">
             <div
               className={`rounded-2xl border px-4 py-3 text-sm shadow-lg ${
-                notice.type === 'success'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : notice.type === 'error'
-                    ? 'border-rose-200 bg-rose-50 text-rose-700'
-                    : 'border-sky-200 bg-sky-50 text-sky-700'
+                notice.type === "success"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : notice.type === "error"
+                    ? "border-rose-200 bg-rose-50 text-rose-700"
+                    : "border-sky-200 bg-sky-50 text-sky-700"
               }`}
             >
               {notice.message}
@@ -629,7 +863,7 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {currentMembership?.role === Role.ADMIN && viewMode === 'LIST' ? (
+        {currentMembership?.role === Role.ADMIN && viewMode === "LIST" ? (
           <div className="p-5 md:p-8">
             <AdminPanel
               requests={currentRequests}
@@ -637,14 +871,17 @@ const App: React.FC = () => {
               onAiUsage={handleAiUsage}
               aiEnabled={aiEnabled}
               aiDisabledReason={aiDisabledReason}
+              todayKey={todayKey}
             />
           </div>
-        ) : viewMode === 'LIST' ? (
+        ) : viewMode === "LIST" ? (
           <div className="p-5 md:p-8">
             <MyShifts
-              requests={currentRequests.filter((request) => request.userId === currentUser.id)}
+              requests={currentRequests.filter(
+                (request) => request.userId === currentUser.id,
+              )}
               onEdit={(request) => {
-                const [year, month, day] = request.date.split('-').map(Number);
+                const [year, month, day] = request.date.split("-").map(Number);
                 handleOpenRequestModal(new Date(year, month - 1, day));
               }}
               onCancel={handleCancelMyRequest}
@@ -675,7 +912,7 @@ const App: React.FC = () => {
               setEditingRequest(undefined);
             }}
             onSubmit={handleSubmitRequest}
-            onDelete={handleDeleteRequest}
+            onDelete={editingRequest ? handleDeleteRequest : undefined}
             aiEnabled={aiEnabled}
             aiDisabledReason={aiDisabledReason}
             onAiUsage={handleAiUsage}
@@ -683,6 +920,42 @@ const App: React.FC = () => {
         )}
       </Layout>
 
+      {detailRequest && (
+        <Modal
+          label="Staffing request details"
+          onClose={() => setDetailRequest(null)}
+        >
+          <div className="rounded-3xl bg-white p-6">
+            <h2 className="text-2xl font-bold">{detailRequest.userName}</h2>
+            <p className="mt-3">
+              {detailRequest.date} — {detailRequest.type} —{" "}
+              {detailRequest.status}
+            </p>
+            {detailRequest.notes && (
+              <p className="mt-3">{detailRequest.notes}</p>
+            )}
+            {detailRequest.adminResponse && (
+              <p className="mt-3">{detailRequest.adminResponse}</p>
+            )}
+            <button
+              className="mt-5 rounded-xl border px-4 py-3"
+              onClick={() => setDetailRequest(null)}
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
+      )}
+      {isTeamModalOpen && currentOrg && (
+        <TeamModal
+          orgId={currentOrg.id}
+          users={usersForOrg}
+          isAdmin={currentMembership?.role === Role.ADMIN}
+          onClose={() => setIsTeamModalOpen(false)}
+          onRefresh={() => fetchMe(token || undefined)}
+          onAccept={handleAcceptInvitation}
+        />
+      )}
       {isPlanModalOpen && currentOrg && (
         <PlanModal
           organization={currentOrg}

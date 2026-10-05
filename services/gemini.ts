@@ -1,23 +1,19 @@
-import { api } from './api';
-import { RequestType } from '../types';
-
-export const analyzeRequestConflict = async (
+import { api } from "./api";
+import { RequestType } from "../types";
+export const analyzeRequestConflict = (
   orgId: string,
-  date: string,
-  type: RequestType
-): Promise<{ allowed: boolean; message: string; aiUsed?: number; aiCredits?: number }> => {
-  const res = await api.post('/ai/analyze', { orgId, date, type });
-  return res;
-};
-
-export const generateAdminResponse = async (
-  orgId: string,
-  userName: string,
   date: string,
   type: RequestType,
-  decision: 'APPROVE' | 'REJECT',
-  reason?: string
-): Promise<{ message: string; aiUsed?: number; aiCredits?: number }> => {
-  const res = await api.post('/ai/respond', { orgId, userName, date, type, decision, reason });
-  return res;
-};
+): Promise<{
+  allowed: boolean;
+  message: string;
+  available: boolean;
+  aiUsed?: number;
+  aiCredits?: number;
+}> => api.post("/ai/analyze", { orgId, date, type });
+export const generateAdminResponse = (
+  orgId: string,
+  requestId: string,
+  decision: "APPROVE" | "REJECT",
+): Promise<{ message: string; aiUsed?: number; aiCredits?: number }> =>
+  api.post("/ai/respond", { orgId, requestId, decision });

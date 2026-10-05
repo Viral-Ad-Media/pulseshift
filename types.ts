@@ -1,21 +1,21 @@
 export enum Role {
-  NURSE = 'NURSE',
-  ADMIN = 'ADMIN'
+  NURSE = "NURSE",
+  ADMIN = "ADMIN",
 }
 
-export type PlanTier = 'ESSENTIALS' | 'TEAM' | 'BUSINESS';
-export type TrialStatus = 'ACTIVE' | 'EXPIRED' | 'NONE';
+export type PlanTier = "ESSENTIALS" | "TEAM" | "BUSINESS";
+export type TrialStatus = "ACTIVE" | "EXPIRED" | "NONE";
 
 export enum RequestType {
-  WORK = 'WORK',
-  PTO = 'PTO',
-  SICK = 'SICK'
+  WORK = "WORK",
+  PTO = "PTO",
+  SICK = "SICK",
 }
 
 export enum RequestStatus {
-  PENDING = 'PENDING',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED'
+  PENDING = "PENDING",
+  APPROVED = "APPROVED",
+  REJECTED = "REJECTED",
 }
 
 export interface User {
@@ -29,6 +29,7 @@ export interface User {
 
 export interface ShiftRequest {
   id: string;
+  version: number;
   userId: string;
   userName: string; // Denormalized for simpler UI
   date: string; // ISO Date string YYYY-MM-DD

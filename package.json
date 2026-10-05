@@ -5,33 +5,34 @@
   "version": "0.1.0",
   "type": "module",
   "engines": {
-    "node": ">=18"
+    "node": "^22.22.2 || ^24.15.0"
   },
   "scripts": {
     "dev": "vite",
-    "dev:client": "vite",
+    "dev:client": "npm run dev",
     "dev:server": "npm --prefix ../pulseshift-server run dev",
-    "build": "vite build",
+    "build": "npm run check && vite build",
     "check": "tsc --noEmit",
     "preview": "vite preview",
-    "server": "npm --prefix ../pulseshift-server run start"
+    "server": "npm --prefix ../pulseshift-server run start",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@google/genai": "^1.30.0",
-    "@supabase/supabase-js": "^2.57.4",
-    "bcryptjs": "^2.4.3",
-    "cors": "^2.8.5",
-    "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "^22.14.0",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
-    "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "jsdom": "^30.1.2",
+    "tailwindcss": "^4.3.3",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "vitest": "^5.0.3"
   }
 }

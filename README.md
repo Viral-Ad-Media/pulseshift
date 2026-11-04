@@ -12,7 +12,7 @@ Font Awesome CSS and the Manrope font are optional external presentation assets;
 
 ## Coordinated API upgrade
 
-Deploy with the companion API audit-fix pull request after applying its `supabase/migrations/20261005_audit.sql`. Old APIs do not supply versions or the invitation endpoints; the frontend is not compatible with an unmigrated API. Old sessions require sign-in again after the JWT changes.
+Deploy with the companion Neon/Better Auth API changes after running `npm run db:migrate` against its dedicated Neon database. Old APIs do not supply versions or the invitation endpoints; the frontend is not compatible with an unmigrated API. Old JWT sessions require sign-in again after the Better Auth migration. Existing account IDs, memberships and passwords are supported by the legacy import tooling.
 
 There are no prefilled demo credentials. Create a workspace using a password of at least twelve characters. An invitation link preloads its token at signup; existing account holders can select sign-in to accept that invitation.
 
@@ -37,3 +37,9 @@ The plan modal compares tiers and opens a sales email. Automatic payment collect
 - `npm audit --audit-level=low`: dependency advisory scan.
 
 CI performs these checks for every pull request. Backend tests separately cover actual HTTP authorization/privacy, onboarding and PostgreSQL transaction functions.
+
+## Better Auth accounts
+
+The API now owns authentication through Better Auth, stored in Neon PostgreSQL. The SPA uses opaque Better Auth bearer sessions so sign-in remains reliable across separate Render domains. The native Better Auth endpoints are under `/api/auth/*`. No Supabase client, URL or API key is needed in the browser or API.
+
+If account creation succeeds but workspace setup needs a retry (for example an expired invitation), reload or sign in again to resume setup. The account is retained. The Account button changes the password using the current password and revokes other sessions. Password recovery emails and OAuth providers are not configured yet.

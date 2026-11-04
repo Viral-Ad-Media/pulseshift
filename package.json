@@ -1,6 +1,6 @@
 {
   "name": "pulseshift",
-  "description": "Supabase-backed healthcare scheduling SaaS for workforce requests, approvals, and AI-assisted staffing decisions.",
+  "description": "Neon-backed healthcare scheduling SaaS for workforce requests, approvals, and AI-assisted staffing decisions.",
   "private": true,
   "version": "0.1.0",
   "type": "module",

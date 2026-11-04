@@ -14,6 +14,8 @@ import {
   User,
 } from "./types";
 import { api, setAuthToken } from "./services/api";
+import { WorkspaceSetup } from "./components/WorkspaceSetup";
+import { AccountModal } from "./components/AccountModal";
 import { TeamModal } from "./components/TeamModal";
 import { Modal } from "./components/Modal";
 import { formatDateKey, workspaceToday, dateFromKey } from "./services/dates";
@@ -271,6 +273,8 @@ const App: React.FC = () => {
   const sessionGeneration = useRef(0);
   const saveInProgress = useRef(false);
   const switchGeneration = useRef(0);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
   const [detailRequest, setDetailRequest] = useState<ShiftRequest | null>(null);
   const [token, setTokenState] = useState<string | null>(null);
@@ -333,9 +337,11 @@ const App: React.FC = () => {
       user: SessionUser;
       memberships: Membership[];
       orgs: Organization[];
+      setupError?: string;
     },
     preferredOrgId?: string | null,
   ) => {
+    setSetupError(session.setupError || null);
     setCurrentOrgId(null);
     setAuthToken(session.token);
     setOrgUsers({});
@@ -482,6 +488,7 @@ const App: React.FC = () => {
     void api.post("/auth/logout").catch(() => {});
     sessionGeneration.current += 1;
     switchGeneration.current += 1;
+    setIsAccountModalOpen(false);
     setIsTeamModalOpen(false);
     setDetailRequest(null);
     localStorage.removeItem(TOKEN_KEY);
@@ -805,6 +812,22 @@ const App: React.FC = () => {
     );
   }
 
+  if (token && authUser && !currentOrgId && !loading) {
+    return (
+      <WorkspaceSetup
+        name={authUser.name}
+        initialError={setupError || authError}
+        onLogout={handleLogout}
+        onSubmit={async (payload) => {
+          const result = await api.post("/workspaces", payload);
+          await hydrateSession(
+            { ...result, token },
+            result.memberships[0]?.orgId,
+          );
+        }}
+      />
+    );
+  }
   if (!token || !authUser || !currentOrgId || !currentUser || !currentOrg) {
     return (
       <AuthCard
@@ -825,6 +848,7 @@ const App: React.FC = () => {
         isAdmin={currentMembership?.role === Role.ADMIN}
         onLogout={handleLogout}
         onManageTeam={() => setIsTeamModalOpen(true)}
+        onAccount={() => setIsAccountModalOpen(true)}
         onPanelToggle={handlePanelToggle}
         onOrgChange={handleOrgChange}
         onRefresh={refreshCurrentOrg}
@@ -945,6 +969,17 @@ const App: React.FC = () => {
             </button>
           </div>
         </Modal>
+      )}
+      {isAccountModalOpen && (
+        <AccountModal
+          onClose={() => setIsAccountModalOpen(false)}
+          onSessionChange={(next) => {
+            if (next) {
+              localStorage.setItem(TOKEN_KEY, next);
+              setTokenState(next);
+            }
+          }}
+        />
       )}
       {isTeamModalOpen && currentOrg && (
         <TeamModal

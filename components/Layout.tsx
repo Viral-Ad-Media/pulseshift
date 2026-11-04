@@ -10,6 +10,7 @@ interface LayoutProps {
   isAdmin: boolean;
   onLogout: () => void;
   onManageTeam: () => void;
+  onAccount: () => void;
   onPanelToggle: () => void;
   onOrgChange: (orgId: string) => void;
   onRefresh: () => void;
@@ -99,6 +100,7 @@ export const Layout: React.FC<LayoutProps> = ({
   isAdmin,
   onLogout,
   onManageTeam,
+  onAccount,
   onPanelToggle,
   onOrgChange,
   onRefresh,
@@ -200,6 +202,12 @@ export const Layout: React.FC<LayoutProps> = ({
                 className="rounded-2xl border border-white/10 px-4 py-3"
               >
                 Team
+              </button>
+              <button
+                onClick={onAccount}
+                className="rounded-2xl border border-white/10 px-4 py-3"
+              >
+                Account
               </button>
               <button
                 onClick={onLogout}

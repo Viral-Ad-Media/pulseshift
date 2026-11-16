@@ -1,4 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Dashboard } from "./components/Dashboard";
+import { WorkforceHub, WorkforcePage } from "./components/WorkforceHub";
+import { LandingPage } from "./components/LandingPage";
+import { WorkforceData } from "./services/workforce";
+import { clearScheduleSnapshots } from "./services/dashboard";
+import {
+  SecondFactorCard,
+  RecoveryScreen,
+  OfflineSchedule,
+} from "./components/AccountFlows";
+import { ScheduleBoard } from "./components/ScheduleBoard";
+import { ActivityCenter } from "./components/ActivityCenter";
+import { ScheduleData, ViewMode, TimeView } from "./types";
+import { occursOn } from "./services/scheduling";
 import { Layout } from "./components/Layout";
 import { Calendar } from "./components/Calendar";
 import { RequestModal } from "./components/RequestModal";
@@ -41,6 +55,13 @@ type SignupPayload = {
 
 const TOKEN_KEY = "pulseshift_token";
 const WORKSPACE_KEY = "pulseshift_workspace";
+const workforcePages: Partial<Record<ViewMode, WorkforcePage>> = {
+  REPORTS: "REPORTS",
+  AUDIT: "AUDIT",
+  IMPORTS: "IMPORTS",
+  SETTINGS: "SETTINGS",
+  INTEGRATIONS: "INTEGRATIONS",
+};
 
 const resolvePreferredOrg = (
   memberships: Membership[],
@@ -55,7 +76,9 @@ const AuthCard: React.FC<{
   onSignup: (payload: SignupPayload) => void;
   loading: boolean;
   error: string | null;
-}> = ({ onLogin, onSignup, loading, error }) => {
+  onRecovery: () => void;
+  onOffline: () => void;
+}> = ({ onLogin, onSignup, loading, error, onRecovery, onOffline }) => {
   const [mode, setMode] = useState<"login" | "signup">(() =>
     window.location.hash.includes("invite=") ? "signup" : "login",
   );
@@ -93,69 +116,53 @@ const AuthCard: React.FC<{
         password.length < 12));
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-transparent px-4 py-10">
-      <div className="grid w-full max-w-5xl overflow-hidden rounded-[32px] border border-white/50 bg-white/90 shadow-[0_28px_90px_rgba(15,23,42,0.12)] backdrop-blur xl:grid-cols-[1.05fr_minmax(0,0.95fr)]">
-        <section className="hidden bg-slate-950 p-10 text-white xl:flex xl:flex-col">
-          <div className="inline-flex w-fit items-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-sky-200">
-            <i className="fa-solid fa-heart-pulse"></i>
-            PulseShift
-          </div>
-          <h1 className="mt-8 text-5xl font-extrabold leading-tight">
-            Healthcare scheduling that feels like a real SaaS workspace.
-          </h1>
-          <p className="mt-5 max-w-xl text-base leading-7 text-slate-300">
-            Manage multi-tenant workspaces, staff requests, AI-assisted
-            approvals, usage limits, and plan upgrades from one scheduling
-            surface built for care teams.
+    <LandingPage onGetStarted={() => setMode("signup")}>
+      <section className="auth-card">
+        <div className="mt-6">
+          <p className="text-sm font-bold uppercase tracking-[0.28em] text-sky-600">
+            {mode === "login" ? "Welcome back" : "Create workspace"}
           </p>
+          <h2 className="mt-3 text-3xl font-extrabold text-slate-950">
+            {mode === "login"
+              ? "Welcome back to your team"
+              : inviteToken
+                ? "Join your care team"
+                : "Bring your team together"}
+          </h2>
+          <p className="mt-3 text-sm leading-6 text-slate-500">
+            {mode === "login"
+              ? "Sign in to check your next shift, respond to requests, or put the week together."
+              : inviteToken
+                ? "Use the email address your manager invited."
+                : "Create a workspace and start planning with your team."}
+          </p>
+        </div>
 
-          <div className="mt-10 grid gap-4">
-            {[
-              "Multi-organization auth and workspace switching",
-              "Server-side plan limits and AI credit metering",
-              "Approval flows for PTO, sick leave, and work coverage",
-            ].map((item) => (
-              <div
-                key={item}
-                className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-200"
-              >
-                <i className="fa-solid fa-check text-emerald-400"></i>
-                <span>{item}</span>
-              </div>
-            ))}
+        {error && (
+          <div
+            role="alert"
+            className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+          >
+            {error}
           </div>
-        </section>
+        )}
 
-        <section className="p-6 sm:p-10">
-          <div className="xl:hidden">
-            <div className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700">
-              <i className="fa-solid fa-heart-pulse"></i>
-              PulseShift
-            </div>
-          </div>
-
-          <div className="mt-6">
-            <p className="text-sm font-bold uppercase tracking-[0.28em] text-sky-600">
-              {mode === "login" ? "Welcome back" : "Create workspace"}
-            </p>
-            <h2 className="mt-3 text-3xl font-extrabold text-slate-950">
-              {mode === "login"
-                ? "Sign in to your staffing workspace"
-                : "Launch a new scheduling workspace"}
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-slate-500">
-              {mode === "login"
-                ? "Sign in with your workspace account."
-                : `Start a Team trial or join an invited workspace. Browser timezone: ${timezone}.`}
-            </p>
-          </div>
-
-          {error && (
-            <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {error}
-            </div>
-          )}
-
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (isDisabled) return;
+            if (mode === "login") onLogin(email, password);
+            else
+              onSignup({
+                name,
+                orgName,
+                email,
+                password,
+                timezone,
+                inviteToken: inviteToken || undefined,
+              });
+          }}
+        >
           <div className="mt-8 space-y-5">
             {mode === "signup" && (
               <>
@@ -228,21 +235,7 @@ const AuthCard: React.FC<{
           </div>
 
           <button
-            onClick={() => {
-              if (mode === "login") {
-                onLogin(email, password);
-                return;
-              }
-
-              onSignup({
-                name,
-                orgName,
-                email,
-                password,
-                timezone,
-                inviteToken: inviteToken || undefined,
-              });
-            }}
+            type="submit"
             disabled={isDisabled}
             className="mt-8 w-full rounded-2xl bg-slate-950 px-4 py-4 text-sm font-semibold text-white shadow-lg shadow-slate-950/10 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -250,10 +243,13 @@ const AuthCard: React.FC<{
               ? "Working..."
               : mode === "login"
                 ? "Sign in"
-                : "Create workspace"}
+                : inviteToken
+                  ? "Join workspace"
+                  : "Create workspace"}
           </button>
 
           <button
+            type="button"
             onClick={() =>
               setMode((current) => (current === "login" ? "signup" : "login"))
             }
@@ -263,9 +259,17 @@ const AuthCard: React.FC<{
               ? "Need a workspace? Create one"
               : "Already have an account? Sign in"}
           </button>
-        </section>
-      </div>
-    </div>
+          <div className="auth-secondary-actions">
+            <button type="button" onClick={onRecovery}>
+              Forgot your password?
+            </button>
+            <button type="button" onClick={onOffline}>
+              View downloaded schedule
+            </button>
+          </div>
+        </form>
+      </section>
+    </LandingPage>
   );
 };
 
@@ -273,10 +277,22 @@ const App: React.FC = () => {
   const sessionGeneration = useRef(0);
   const saveInProgress = useRef(false);
   const switchGeneration = useRef(0);
+  const inboxFingerprints = useRef<Record<string, string>>({});
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
   const [detailRequest, setDetailRequest] = useState<ShiftRequest | null>(null);
+  const [twoFactorChallenge, setTwoFactorChallenge] = useState<string | null>(
+    null,
+  );
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [offlineOpen, setOfflineOpen] = useState(false);
+  const [resetToken, setResetToken] = useState<string | null>(() =>
+    new URLSearchParams(window.location.hash.slice(1)).get("reset"),
+  );
+  const [workforceByOrg, setWorkforceByOrg] = useState<
+    Record<string, WorkforceData | null>
+  >({});
   const [token, setTokenState] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<SessionUser | null>(null);
   const [memberships, setMemberships] = useState<Membership[]>([]);
@@ -286,15 +302,20 @@ const App: React.FC = () => {
   const [requestsByOrg, setRequestsByOrg] = useState<
     Record<string, ShiftRequest[]>
   >({});
+  const [scheduleByOrg, setScheduleByOrg] = useState<
+    Record<string, ScheduleData | null>
+  >({});
+  const [featureErrorsByOrg, setFeatureErrorsByOrg] = useState<
+    Record<string, { schedule: string | null; notifications: string | null }>
+  >({});
+  const [unreadByOrg, setUnreadByOrg] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
 
-  const [viewMode, setViewMode] = useState<"LIST" | "CALENDAR" | "DISPATCH">(
-    "DISPATCH",
-  );
-  const [timeView, setTimeView] = useState<"DAY" | "MONTH">("DAY");
+  const [viewMode, setViewMode] = useState<ViewMode>("DASHBOARD");
+  const [timeView, setTimeView] = useState<TimeView>("MONTH");
   const [scope, setScope] = useState<"MY" | "TEAM">("TEAM");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -316,7 +337,37 @@ const App: React.FC = () => {
 
   const loadOrg = async (orgId: string) => {
     const generation = sessionGeneration.current;
-    const response = await api.get(`/orgs/${orgId}/full`);
+    // Authentication and core workspace access must not depend on optional endpoints.
+    // An older API can still serve availability/leave while the planner is upgraded.
+    const loadFeature = async (
+      feature: "schedule" | "notifications" | "workforce",
+    ) => {
+      try {
+        return {
+          data: await api.get(`/orgs/${orgId}/${feature}`),
+          error: null,
+        };
+      } catch (error: any) {
+        if (error.status === 401 || error.status === 403) throw error;
+        return {
+          data: null,
+          error:
+            error.status === 404
+              ? feature === "schedule"
+                ? "The shift planner is not available on this server yet. Availability and leave requests still work."
+                : "Notifications and request history are not available on this server yet."
+              : feature === "schedule"
+                ? "The shift planner could not be loaded. Availability and leave requests are still accessible. Retry the planner connection."
+                : "Notifications could not be loaded. Retry the connection to check for updates.",
+        };
+      }
+    };
+    const [response, schedule, inbox, workforce] = await Promise.all([
+      api.get(`/orgs/${orgId}/full`),
+      loadFeature("schedule"),
+      loadFeature("notifications"),
+      loadFeature("workforce"),
+    ]);
     if (generation !== sessionGeneration.current) return;
     setOrgs((previous) => {
       const others = previous.filter(
@@ -324,12 +375,58 @@ const App: React.FC = () => {
       );
       return [...others, response.org];
     });
+    setScheduleByOrg((previous) => ({ ...previous, [orgId]: schedule.data }));
+    setWorkforceByOrg((previous) => ({ ...previous, [orgId]: workforce.data }));
+    setFeatureErrorsByOrg((previous) => ({
+      ...previous,
+      [orgId]: { schedule: schedule.error, notifications: inbox.error },
+    }));
+    inboxFingerprints.current[orgId] = JSON.stringify(
+      inbox.data?.notifications || [],
+    );
+    setUnreadByOrg((previous) => ({
+      ...previous,
+      [orgId]: inbox.data?.unread || 0,
+    }));
     setOrgUsers((previous) => ({ ...previous, [orgId]: response.users }));
     setRequestsByOrg((previous) => ({
       ...previous,
       [orgId]: response.requests,
     }));
   };
+
+  useEffect(() => {
+    if (!currentOrgId || !token) return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const inbox = await api.get(`/orgs/${currentOrgId}/notifications`);
+        if (active) {
+          setUnreadByOrg((previous) => ({
+            ...previous,
+            [currentOrgId]: inbox.unread,
+          }));
+          const fingerprint = JSON.stringify(inbox.notifications || []);
+          if (
+            fingerprint !== inboxFingerprints.current[currentOrgId] &&
+            viewMode !== "WORKFORCE" &&
+            !document.querySelector('[role="dialog"]')
+          ) {
+            await loadOrg(currentOrgId);
+          }
+        }
+      } catch {
+        /* Explicit refresh surfaces errors; background polling preserves current content. */
+      }
+    };
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void poll();
+    }, 30000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [currentOrgId, token, viewMode]);
 
   const hydrateSession = async (
     session: {
@@ -346,8 +443,13 @@ const App: React.FC = () => {
     setAuthToken(session.token);
     setOrgUsers({});
     setRequestsByOrg({});
+    setScheduleByOrg({});
+    setWorkforceByOrg({});
+    setFeatureErrorsByOrg({});
+    setUnreadByOrg({});
     localStorage.setItem(TOKEN_KEY, session.token);
     setTokenState(session.token);
+    localStorage.setItem("pulseshift_current_user", session.user.id);
     setAuthUser({
       id: session.user.id,
       name: session.user.name,
@@ -403,6 +505,7 @@ const App: React.FC = () => {
       }
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(WORKSPACE_KEY);
+      localStorage.removeItem("pulseshift_current_user");
       setAuthToken(null);
       setTokenState(null);
       setAuthUser(null);
@@ -411,6 +514,10 @@ const App: React.FC = () => {
       setCurrentOrgId(null);
       setOrgUsers({});
       setRequestsByOrg({});
+      setScheduleByOrg({});
+      setWorkforceByOrg({});
+      setFeatureErrorsByOrg({});
+      setUnreadByOrg({});
       setAuthError(error.message || "Unable to load account");
     } finally {
       setLoading(false);
@@ -429,16 +536,15 @@ const App: React.FC = () => {
     fetchMe(savedToken).finally(() => setBootstrapping(false));
   }, []);
 
-  const handleLogin = async (email: string, password: string) => {
-    sessionGeneration.current += 1;
-    try {
-      setLoading(true);
-      let response = await api.post("/auth/login", { email, password });
-      const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
-        "invite",
-      );
-      if (invitation) {
-        setAuthToken(response.token);
+  const finishSignIn = async (incoming: any) => {
+    let response = incoming;
+    const invitation = new URLSearchParams(window.location.hash.slice(1)).get(
+      "invite",
+    );
+    let invitationError: string | null = null;
+    if (invitation) {
+      setAuthToken(response.token);
+      try {
         const joined = await api.post("/invitations/accept", {
           token: invitation,
         });
@@ -448,10 +554,33 @@ const App: React.FC = () => {
           "",
           window.location.pathname + window.location.search,
         );
+      } catch (error: any) {
+        if (error.status === 401) throw error;
+        invitationError =
+          error.message ||
+          "The invitation could not be accepted. You are still signed in.";
       }
-      await hydrateSession(response);
-      setAuthError(null);
-      showNotice("success", "Signed in successfully.");
+    }
+    setTwoFactorChallenge(null);
+    await hydrateSession(response);
+    setAuthError(null);
+    if (invitationError) {
+      setSetupError(invitationError);
+      showNotice("error", `Signed in. ${invitationError}`);
+    } else showNotice("success", "Signed in successfully.");
+    setTwoFactorChallenge(null);
+  };
+
+  const handleLogin = async (email: string, password: string) => {
+    sessionGeneration.current += 1;
+    try {
+      setLoading(true);
+      let response = await api.post("/auth/login", { email, password });
+      if (response.twoFactorRequired) {
+        setTwoFactorChallenge(response.challenge);
+        return;
+      }
+      await finishSignIn(response);
     } catch (error: any) {
       setAuthError(error.message || "Login failed");
     } finally {
@@ -491,8 +620,11 @@ const App: React.FC = () => {
     setIsAccountModalOpen(false);
     setIsTeamModalOpen(false);
     setDetailRequest(null);
+    setTwoFactorChallenge(null);
+    clearScheduleSnapshots();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(WORKSPACE_KEY);
+    localStorage.removeItem("pulseshift_current_user");
     setAuthToken(null);
     setTokenState(null);
     setAuthUser(null);
@@ -501,12 +633,16 @@ const App: React.FC = () => {
     setCurrentOrgId(null);
     setOrgUsers({});
     setRequestsByOrg({});
+    setScheduleByOrg({});
+    setWorkforceByOrg({});
+    setFeatureErrorsByOrg({});
+    setUnreadByOrg({});
     setSelectedDate(null);
     setEditingRequest(undefined);
     setIsModalOpen(false);
     setIsPlanModalOpen(false);
-    setViewMode("DISPATCH");
-    setTimeView("DAY");
+    setViewMode("DASHBOARD");
+    setTimeView("MONTH");
     setScope("TEAM");
     setCurrentDate(new Date());
     setAuthError(null);
@@ -709,6 +845,23 @@ const App: React.FC = () => {
     });
   };
 
+  const refreshTeam = async () => {
+    if (!currentOrgId || !token) return;
+    const generation = sessionGeneration.current;
+    const data = await api.get("/me");
+    if (generation !== sessionGeneration.current) return;
+    if (!data.memberships.some((m: Membership) => m.orgId === currentOrgId)) {
+      setIsTeamModalOpen(false);
+      await hydrateSession({ ...data, token });
+      return;
+    }
+    // Keep the active workspace mounted so a newly generated invite stays visible.
+    // hydrateSession intentionally resets the workspace and must not be used here.
+    setMemberships(data.memberships);
+    setOrgs(data.orgs);
+    await loadOrg(currentOrgId);
+  };
+
   const handleAcceptInvitation = async (inviteToken: string) => {
     await api.post("/invitations/accept", { token: inviteToken });
     await fetchMe(token || undefined);
@@ -781,12 +934,14 @@ const App: React.FC = () => {
     const pendingApprovals = currentRequests.filter(
       (request) => request.status === RequestStatus.PENDING,
     ).length;
-    const scheduledToday = currentRequests.filter(
-      (request) =>
-        request.status === RequestStatus.APPROVED &&
-        request.type === RequestType.WORK &&
-        request.date === todayKey,
-    ).length;
+    const schedule = scheduleByOrg[currentOrgId || ""];
+    const scheduledToday = schedule
+      ? new Set(
+          schedule.published
+            .filter((shift) => occursOn(shift, todayKey))
+            .flatMap((shift) => shift.assignments.map((a) => a.userId)),
+        ).size
+      : null;
     const upcomingLeave = currentRequests.filter(
       (request) =>
         request.status === RequestStatus.APPROVED &&
@@ -800,7 +955,41 @@ const App: React.FC = () => {
       scheduledToday,
       upcomingLeave,
     };
-  }, [currentRequests, todayKey, usersForOrg.length]);
+  }, [
+    currentRequests,
+    todayKey,
+    usersForOrg.length,
+    scheduleByOrg,
+    currentOrgId,
+  ]);
+
+  if (offlineOpen)
+    return <OfflineSchedule onBack={() => setOfflineOpen(false)} />;
+  if (recoveryOpen || resetToken)
+    return (
+      <RecoveryScreen
+        resetToken={resetToken}
+        onBack={() => {
+          setRecoveryOpen(false);
+          setResetToken(null);
+          window.history.replaceState(
+            null,
+            "",
+            window.location.pathname + window.location.search,
+          );
+        }}
+      />
+    );
+  if (twoFactorChallenge)
+    return (
+      <SecondFactorCard
+        challenge={twoFactorChallenge}
+        onCancel={() => setTwoFactorChallenge(null)}
+        onComplete={async (session) => {
+          await finishSignIn(session);
+        }}
+      />
+    );
 
   if (bootstrapping) {
     return (
@@ -813,29 +1002,71 @@ const App: React.FC = () => {
   }
 
   if (token && authUser && !currentOrgId && !loading) {
+    if (memberships.length > 0) {
+      return (
+        <main className="flex min-h-screen items-center justify-center px-4 py-10">
+          <section className="w-full max-w-xl space-y-5 rounded-3xl bg-white p-8 shadow-xl">
+            <h1 className="text-3xl font-bold">
+              Unable to load your workspace
+            </h1>
+            <p>Your account is signed in and already belongs to a workspace.</p>
+            <p role="alert" className="text-rose-700">
+              {authError || "Workspace data could not be loaded. Please retry."}
+            </p>
+            <button
+              className="w-full rounded-xl bg-slate-950 p-3 text-white"
+              onClick={() => void fetchMe(token)}
+            >
+              Retry loading workspace
+            </button>
+            <button className="w-full p-2" onClick={handleLogout}>
+              Sign out
+            </button>
+          </section>
+        </main>
+      );
+    }
     return (
       <WorkspaceSetup
         name={authUser.name}
         initialError={setupError || authError}
         onLogout={handleLogout}
         onSubmit={async (payload) => {
-          const result = await api.post("/workspaces", payload);
-          await hydrateSession(
-            { ...result, token },
-            result.memberships[0]?.orgId,
-          );
+          let result;
+          try {
+            result = await api.post("/workspaces", payload);
+          } catch (error: any) {
+            if (error.status !== 409) throw error;
+            // Setup may have completed in another tab or before a lost response.
+            result = await api.get("/me");
+            if (!result.memberships?.length) throw error;
+          }
+          try {
+            await hydrateSession(
+              { ...result, token },
+              result.memberships[0]?.orgId,
+            );
+            setAuthError(null);
+          } catch (error: any) {
+            setAuthError(error.message || "Unable to load workspace.");
+            throw error;
+          }
         }}
       />
     );
   }
   if (!token || !authUser || !currentOrgId || !currentUser || !currentOrg) {
     return (
-      <AuthCard
-        onLogin={handleLogin}
-        onSignup={handleSignup}
-        loading={loading}
-        error={authError}
-      />
+      <div>
+        <AuthCard
+          onLogin={handleLogin}
+          onSignup={handleSignup}
+          loading={loading}
+          error={authError}
+          onRecovery={() => setRecoveryOpen(true)}
+          onOffline={() => setOfflineOpen(true)}
+        />
+      </div>
     );
   }
 
@@ -846,12 +1077,19 @@ const App: React.FC = () => {
         currentOrg={currentOrg}
         organizations={orgs}
         isAdmin={currentMembership?.role === Role.ADMIN}
+        canReviewWorkforce={
+          !!(
+            workforceByOrg[currentOrg.id]?.permissions.admin ||
+            workforceByOrg[currentOrg.id]?.permissions.departments.length
+          )
+        }
         onLogout={handleLogout}
         onManageTeam={() => setIsTeamModalOpen(true)}
         onAccount={() => setIsAccountModalOpen(true)}
         onPanelToggle={handlePanelToggle}
         onOrgChange={handleOrgChange}
         onRefresh={refreshCurrentOrg}
+        notificationCount={unreadByOrg[currentOrg.id] || 0}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         timeView={timeView}
@@ -866,7 +1104,7 @@ const App: React.FC = () => {
         onUpgradePlan={() => setIsPlanModalOpen(true)}
       >
         {notice && (
-          <div className="pointer-events-none absolute right-4 top-4 z-40">
+          <div className="pointer-events-none fixed bottom-5 right-5 z-50 max-w-[calc(100vw-2.5rem)]">
             <div
               className={`rounded-2xl border px-4 py-3 text-sm shadow-lg ${
                 notice.type === "success"
@@ -887,7 +1125,143 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {currentMembership?.role === Role.ADMIN && viewMode === "LIST" ? (
+        {featureErrorsByOrg[currentOrg.id]?.schedule &&
+          viewMode !== "SCHEDULE" &&
+          viewMode !== "DASHBOARD" && (
+            <div
+              role="status"
+              className="m-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+            >
+              {featureErrorsByOrg[currentOrg.id].schedule}
+            </div>
+          )}
+        {(viewMode === "SCHEDULE" || viewMode === "DASHBOARD") &&
+        featureErrorsByOrg[currentOrg.id]?.schedule ? (
+          <section className="mx-auto max-w-2xl space-y-5 p-6 md:p-10">
+            <h1 className="text-2xl font-bold">You’re signed in</h1>
+            <p role="status" className="text-slate-700">
+              {featureErrorsByOrg[currentOrg.id].schedule}
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <button
+                className="rounded-xl bg-slate-950 px-4 py-3 font-semibold text-white"
+                onClick={() => {
+                  setViewMode("DISPATCH");
+                  setTimeView("DAY");
+                }}
+              >
+                Open availability & leave
+              </button>
+              <button
+                className="rounded-xl border px-4 py-3 font-semibold"
+                disabled={loading}
+                onClick={() => void refreshCurrentOrg()}
+              >
+                Retry planner connection
+              </button>
+            </div>
+          </section>
+        ) : viewMode === "DASHBOARD" && scheduleByOrg[currentOrg.id] ? (
+          <Dashboard
+            key={currentOrg.id}
+            orgId={currentOrg.id}
+            orgName={currentOrg.name}
+            timezone={currentOrg.timezone}
+            user={currentUser}
+            users={usersForOrg}
+            schedule={scheduleByOrg[currentOrg.id]!}
+            workforce={workforceByOrg[currentOrg.id] || null}
+            requests={currentRequests}
+            date={currentDate}
+            onDateChange={setCurrentDate}
+            onRefresh={() => loadOrg(currentOrg.id)}
+            onNavigate={setViewMode}
+            onManageTeam={() => setIsTeamModalOpen(true)}
+          />
+        ) : viewMode === "WORKFORCE" || workforcePages[viewMode] ? (
+          workforceByOrg[currentOrg.id] && scheduleByOrg[currentOrg.id] ? (
+            <WorkforceHub
+              key={`${currentOrg.id}:${viewMode}`}
+              page={workforcePages[viewMode]}
+              orgId={currentOrg.id}
+              user={currentUser}
+              users={usersForOrg}
+              data={workforceByOrg[currentOrg.id]!}
+              schedule={{
+                ...scheduleByOrg[currentOrg.id]!,
+                shifts:
+                  currentMembership?.role === Role.ADMIN
+                    ? scheduleByOrg[currentOrg.id]!.shifts
+                    : workforceByOrg[currentOrg.id]!.departmentDrafts || [],
+              }}
+              onRefresh={() => loadOrg(currentOrg.id)}
+            />
+          ) : (
+            <section className="space-y-4 p-6">
+              <h1 className="text-2xl font-bold">
+                Workforce tools unavailable
+              </h1>
+              <p className="text-sm text-slate-600">
+                Connect the matching local API to use time records, swaps,
+                replacements and credentials. Your availability and leave remain
+                accessible.
+              </p>
+              <button
+                className="rounded-xl border px-4 py-3"
+                onClick={() => void refreshCurrentOrg()}
+              >
+                Retry workforce connection
+              </button>
+            </section>
+          )
+        ) : viewMode === "SCHEDULE" ? (
+          <ScheduleBoard
+            onRespond={(shift) => {
+              setCurrentDate(dateFromKey(shift.localStart.slice(0, 10)));
+              setViewMode("DASHBOARD");
+            }}
+            key={currentOrg.id}
+            orgId={currentOrg.id}
+            data={scheduleByOrg[currentOrg.id] || null}
+            users={usersForOrg}
+            currentUser={currentUser}
+            isAdmin={currentMembership?.role === Role.ADMIN}
+            currentDate={currentDate}
+            timeView={timeView}
+            scope={scope}
+            requests={currentRequests}
+            onRefresh={() => loadOrg(currentOrg.id)}
+          />
+        ) : viewMode === "ACTIVITY" &&
+          featureErrorsByOrg[currentOrg.id]?.notifications ? (
+          <section className="space-y-4 p-6">
+            <h1 className="text-2xl font-bold">
+              Inbox temporarily unavailable
+            </h1>
+            <p role="status">
+              {featureErrorsByOrg[currentOrg.id].notifications}
+            </p>
+            <button
+              className="rounded-xl border px-4 py-3 font-semibold"
+              disabled={loading}
+              onClick={() => void refreshCurrentOrg()}
+            >
+              Retry inbox connection
+            </button>
+          </section>
+        ) : viewMode === "ACTIVITY" ? (
+          <ActivityCenter
+            key={currentOrg.id}
+            orgId={currentOrg.id}
+            timezone={currentOrg.timezone}
+            onUnreadChange={(count) =>
+              setUnreadByOrg((previous) => ({
+                ...previous,
+                [currentOrg.id]: count,
+              }))
+            }
+          />
+        ) : currentMembership?.role === Role.ADMIN && viewMode === "LIST" ? (
           <div className="p-5 md:p-8">
             <AdminPanel
               requests={currentRequests}
@@ -922,7 +1296,10 @@ const App: React.FC = () => {
             selectedDate={selectedDate}
             onDateClick={(date) => setSelectedDate(date)}
             onMonthChange={handleMonthChange}
-            onRequestOpen={handleOpenRequestModal}
+            onRequestOpen={(date) => {
+              setCurrentDate(date);
+              setViewMode("LIST");
+            }}
           />
         )}
 
@@ -987,7 +1364,7 @@ const App: React.FC = () => {
           users={usersForOrg}
           isAdmin={currentMembership?.role === Role.ADMIN}
           onClose={() => setIsTeamModalOpen(false)}
-          onRefresh={() => fetchMe(token || undefined)}
+          onRefresh={refreshTeam}
           onAccept={handleAcceptInvitation}
         />
       )}

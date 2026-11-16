@@ -3,10 +3,12 @@ export function Modal({
   children,
   onClose,
   label,
+  variant = "dialog",
 }: {
   children: React.ReactNode;
   onClose: () => void;
   label: string;
+  variant?: "dialog" | "drawer";
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -55,14 +57,20 @@ export function Modal({
     };
   }, []);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+    <div
+      className={`fixed inset-0 z-50 flex bg-slate-950/50 backdrop-blur-sm ${variant === "drawer" ? "items-stretch justify-end" : "items-center justify-center p-4"}`}
+    >
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-label={label}
         tabIndex={-1}
-        className="max-h-[90vh] w-full max-w-6xl overflow-y-auto outline-none"
+        className={
+          variant === "drawer"
+            ? "h-screen w-full max-w-md overflow-y-auto outline-none shadow-2xl"
+            : "max-h-[90vh] w-full max-w-6xl overflow-y-auto outline-none"
+        }
       >
         {children}
       </div>

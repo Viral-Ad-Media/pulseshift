@@ -1,23 +1,27 @@
-import React from "react";
-import { Organization, User } from "../types";
+import React, { useState, useEffect, useRef } from "react";
+import { Organization, User, ViewMode, TimeView } from "../types";
+import { Modal } from "./Modal";
+import { PulseMark, NavIcon } from "./PulseBrand";
+import { formatDateKey } from "../services/dates";
 import { workspaceToday, dateFromKey } from "../services/dates";
-
 interface LayoutProps {
   children: React.ReactNode;
   currentUser: User;
   currentOrg: Organization;
   organizations: Organization[];
   isAdmin: boolean;
+  canReviewWorkforce?: boolean;
   onLogout: () => void;
   onManageTeam: () => void;
   onAccount: () => void;
   onPanelToggle: () => void;
-  onOrgChange: (orgId: string) => void;
+  onOrgChange: (id: string) => void;
   onRefresh: () => void;
-  viewMode: "LIST" | "CALENDAR" | "DISPATCH";
-  onViewModeChange: (mode: "LIST" | "CALENDAR" | "DISPATCH") => void;
-  timeView: "DAY" | "MONTH";
-  onTimeViewChange: (view: "DAY" | "MONTH") => void;
+  notificationCount?: number;
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
+  timeView: TimeView;
+  onTimeViewChange: (view: TimeView) => void;
   scope: "MY" | "TEAM";
   onScopeChange: (scope: "MY" | "TEAM") => void;
   currentDate: Date;
@@ -32,78 +36,24 @@ interface LayoutProps {
   workspaceMetrics: {
     teamMembers: number;
     pendingApprovals: number;
-    scheduledToday: number;
+    scheduledToday: number | null;
     upcomingLeave: number;
   };
   onUpgradePlan: () => void;
 }
-
-const UsagePill: React.FC<{ label: string; used: number; limit: number }> = ({
-  label,
-  used,
-  limit,
-}) => {
-  const hasLimit = limit > 0;
-  const percent = hasLimit
-    ? Math.min(100, Math.round((used / limit) * 100))
-    : 0;
-  const barClass = percent >= 90 ? "bg-amber-500" : "bg-sky-500";
-
-  return (
-    <div className="min-w-[180px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs shadow-sm">
-      <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wide text-slate-500">
-        <span>{label}</span>
-        <span className="text-slate-700">
-          {hasLimit ? `${used}/${limit}` : "Unavailable"}
-        </span>
-      </div>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
-        <div
-          className={`h-full ${barClass}`}
-          style={{ width: `${percent}%` }}
-        ></div>
-      </div>
-      {!hasLimit && (
-        <p className="mt-2 text-[11px] text-slate-400">
-          Included on higher plans
-        </p>
-      )}
-    </div>
-  );
-};
-
-const MetricTile: React.FC<{ icon: string; label: string; value: string }> = ({
-  icon,
-  label,
-  value,
-}) => (
-  <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-    <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-50 text-sky-600">
-        <i className={icon}></i>
-      </div>
-      <div>
-        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-          {label}
-        </p>
-        <p className="text-lg font-extrabold text-slate-950">{value}</p>
-      </div>
-    </div>
-  </div>
-);
-
-export const Layout: React.FC<LayoutProps> = ({
+export function Layout({
   children,
   currentUser,
   currentOrg,
   organizations,
   isAdmin,
+  canReviewWorkforce = isAdmin,
   onLogout,
   onManageTeam,
   onAccount,
-  onPanelToggle,
   onOrgChange,
   onRefresh,
+  notificationCount = 0,
   viewMode,
   onViewModeChange,
   timeView,
@@ -116,346 +66,597 @@ export const Layout: React.FC<LayoutProps> = ({
   usageSummary,
   workspaceMetrics,
   onUpgradePlan,
-}) => {
-  const primaryPanelLabel = isAdmin
-    ? viewMode === "LIST"
-      ? "Back to schedule"
-      : "Approval queue"
-    : viewMode === "LIST"
-      ? "Back to schedule"
-      : "My requests";
-
-  const listTabLabel = isAdmin ? "Approvals" : "My Requests";
-  const trialLabel =
-    currentOrg.trialStatus === "ACTIVE" &&
-    currentOrg.trialDaysRemaining !== undefined
-      ? `${currentOrg.trialDaysRemaining} trial day${currentOrg.trialDaysRemaining === 1 ? "" : "s"} left`
-      : currentOrg.trialStatus === "EXPIRED"
-        ? "Trial expired"
-        : `${currentOrg.plan} plan`;
-
-  const shiftDate = (increment: number) => {
-    const nextDate = new Date(currentDate);
-    nextDate.setDate(nextDate.getDate() + increment);
-    onDateChange(nextDate);
+}: LayoutProps) {
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [help, setHelp] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusables = () =>
+      Array.from(
+        sidebarRef.current?.querySelectorAll<HTMLElement>(
+          "button:not(:disabled),select,a[href]",
+        ) || [],
+      );
+    focusables()[0]?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMobileNavOpen(false);
+      }
+      if (event.key === "Tab") {
+        const nodes = focusables(),
+          first = nodes[0],
+          last = nodes[nodes.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        }
+        if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKey);
+      previous?.focus();
+    };
+  }, [mobileNavOpen]);
+  const nav: Array<{ id: ViewMode; label: string }> = [
+    { id: "DASHBOARD", label: "Dashboard" },
+    { id: "SCHEDULE", label: "Shift planner" },
+    {
+      id: "ACTIVITY",
+      label: `Inbox & history${notificationCount ? ` (${notificationCount})` : ""}`,
+    },
+    { id: "LIST", label: "Approvals" },
+    { id: "DISPATCH", label: "Availability" },
+    { id: "WORKFORCE", label: "Workforce centre" },
+  ];
+  const move = (direction: number) => {
+    const next = new Date(currentDate);
+    if (timeView === "MONTH") next.setMonth(next.getMonth() + direction, 1);
+    else
+      next.setDate(next.getDate() + direction * (timeView === "WEEK" ? 7 : 1));
+    onDateChange(next);
   };
-
+  const management: Array<{ id: ViewMode; label: string }> = [
+    ...(canReviewWorkforce
+      ? [
+          { id: "REPORTS" as const, label: "Reports" },
+          { id: "AUDIT" as const, label: "Audit history" },
+        ]
+      : []),
+    ...(isAdmin
+      ? [
+          { id: "IMPORTS" as const, label: "Imports" },
+          { id: "INTEGRATIONS" as const, label: "Integrations" },
+          { id: "SETTINGS" as const, label: "Settings" },
+        ]
+      : []),
+  ];
+  const title =
+    [...nav, ...management].find((item) => item.id === viewMode)?.label ||
+    "Your workspace";
+  const navigate = (mode: ViewMode) => {
+    onViewModeChange(mode);
+    setMobileNavOpen(false);
+  };
+  const navButton = (item: { id: ViewMode; label: string }) => (
+    <button
+      key={item.id}
+      aria-current={viewMode === item.id ? "page" : undefined}
+      className={`sidebar-link ${viewMode === item.id ? "is-active" : ""}`}
+      onClick={() => navigate(item.id)}
+    >
+      <NavIcon name={item.id} />
+      <span>{item.id === "ACTIVITY" ? "Inbox & history" : item.label}</span>
+      {item.id === "ACTIVITY" && notificationCount > 0 ? (
+        <span className="nav-count">{notificationCount}</span>
+      ) : null}
+      {viewMode === item.id ? <span className="active-dot" /> : null}
+    </button>
+  );
   return (
-    <div className="flex min-h-screen flex-col bg-transparent">
-      <header className="sticky top-0 z-30 border-b border-white/60 bg-slate-950/95 text-white backdrop-blur">
-        <div className="mx-auto flex max-w-[1600px] flex-col gap-4 px-4 py-4 lg:px-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-sky-300">
-                <i className="fa-solid fa-heart-pulse text-lg"></i>
-              </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xl font-extrabold tracking-tight">
-                    PulseShift
-                  </span>
-                  <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-sky-100">
-                    {currentOrg.plan}
-                  </span>
-                  <span className="rounded-full border border-sky-300/20 bg-sky-400/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-sky-200">
-                    {trialLabel}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-slate-300">
-                  Staffing workspace for {currentOrg.name} in{" "}
-                  {currentOrg.timezone}
-                </p>
-              </div>
+    <div className="workspace-app">
+      <a className="skip-link" href="#workspace-content">
+        Skip to content
+      </a>
+      <div
+        className="workspace-shell"
+        aria-hidden={profileOpen || help ? true : undefined}
+        inert={profileOpen || help ? true : undefined}
+      >
+        {mobileNavOpen && (
+          <button
+            className="sidebar-backdrop"
+            aria-label="Close navigation"
+            onClick={() => setMobileNavOpen(false)}
+          />
+        )}
+        <aside
+          ref={sidebarRef}
+          role={mobileNavOpen ? "dialog" : undefined}
+          aria-modal={mobileNavOpen ? true : undefined}
+          id="workspace-navigation"
+          className={`workspace-sidebar ${mobileNavOpen ? "is-open" : ""}`}
+          aria-label="Workspace sidebar"
+        >
+          <div className="sidebar-brand-row">
+            <button
+              className="brand-lockup"
+              onClick={() => navigate("DASHBOARD")}
+              aria-label="PulseShift dashboard"
+            >
+              <PulseMark />
+              <span>
+                PulseShift<span className="brand-dot">.</span>
+              </span>
+            </button>
+            <button
+              className="mobile-close"
+              aria-label="Close sidebar"
+              onClick={() => setMobileNavOpen(false)}
+            >
+              ✕
+            </button>
+          </div>
+          <label className="sidebar-workspace">
+            <span>WORKSPACE</span>
+            <select
+              aria-label="Active workspace"
+              value={currentOrg.id}
+              onChange={(e) => {
+                onOrgChange(e.target.value);
+                setMobileNavOpen(false);
+              }}
+            >
+              {organizations.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+            <span className="workspace-caption">
+              <span className="status-dot" />{" "}
+              {isAdmin ? "Workspace administrator" : "Team member"}
+            </span>
+          </label>
+          <nav aria-label="Main navigation">
+            <p className="nav-section-label">YOUR WORKSPACE</p>
+            {nav.map(navButton)}
+            <button
+              className="sidebar-link"
+              onClick={() => {
+                setMobileNavOpen(false);
+                onManageTeam();
+              }}
+            >
+              <NavIcon name="TEAM" />
+              <span>Team & invitations</span>
+            </button>
+            {management.length > 0 && (
+              <>
+                <p className="nav-section-label management-label">MANAGEMENT</p>
+                {management.map(navButton)}
+              </>
+            )}
+          </nav>
+          <div className="sidebar-bottom">
+            <div className="sidebar-plan">
+              <span className="plan-badge">{currentOrg.plan}</span>
+              <p>
+                {currentOrg.seats.used} of {currentOrg.seats.total} seats in use
+              </p>
+              <button onClick={onUpgradePlan}>
+                Manage workspace plan <span aria-hidden="true">↗</span>
+              </button>
             </div>
-
-            <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="sidebar-link help-link"
+              onClick={() => {
+                setHelp(true);
+                setMobileNavOpen(false);
+              }}
+            >
+              <NavIcon name="HELP" />
+              <span>Help & getting started</span>
+            </button>
+            <span className="sidebar-footnote">
+              Made for the people who care.
+            </span>
+          </div>
+        </aside>
+        <div className="workspace-body">
+          <header className="workspace-topbar">
+            <div className="topbar-location">
               <button
+                className="mobile-menu icon-button"
+                aria-label="Open navigation"
+                aria-expanded={mobileNavOpen}
+                aria-controls="workspace-navigation"
+                onClick={() => setMobileNavOpen((v) => !v)}
+              >
+                <NavIcon name="MENU" />
+              </button>
+              <span className="topbar-workspace-name">
+                {currentOrg.name}
+                <span aria-hidden="true"> / </span>
+              </span>
+              <span className="topbar-page">{title}</span>
+            </div>
+            <div className="topbar-actions">
+              <span className="timezone-label">{currentOrg.timezone}</span>
+              <button
+                className="icon-button"
+                aria-label="Refresh workspace"
+                title="Refresh workspace"
                 onClick={onRefresh}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
               >
-                <i className="fa-solid fa-rotate mr-2 text-xs"></i>
-                Refresh
+                <NavIcon name="REFRESH" />
               </button>
+              <span className="topbar-divider" />
               <button
-                onClick={onPanelToggle}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
+                aria-label={`Open profile for ${currentUser.name}`}
+                aria-expanded={profileOpen}
+                className="profile-trigger"
+                onClick={() => setProfileOpen(true)}
               >
-                <i className="fa-solid fa-list-check mr-2 text-xs"></i>
-                {primaryPanelLabel}
-              </button>
-              <button
-                onClick={onUpgradePlan}
-                className="rounded-2xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:bg-sky-400"
-              >
-                <i className="fa-solid fa-rocket mr-2 text-xs"></i>
-                Manage plan
-              </button>
-              <button
-                onClick={onCreateClick}
-                className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-100"
-              >
-                <i className="fa-solid fa-plus mr-2 text-xs"></i>
-                Create request
-              </button>
-              <button
-                onClick={onManageTeam}
-                className="rounded-2xl border border-white/10 px-4 py-3"
-              >
-                Team
-              </button>
-              <button
-                onClick={onAccount}
-                className="rounded-2xl border border-white/10 px-4 py-3"
-              >
-                Account
-              </button>
-              <button
-                onClick={onLogout}
-                className="rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-800"
-              >
-                Logout
+                <span className="profile-avatar">
+                  {currentUser.name
+                    .split(" ")
+                    .map((n) => n[0])
+                    .slice(0, 2)
+                    .join("")}
+                </span>
+                <span className="profile-copy">
+                  <strong>{currentUser.name}</strong>
+                  <small>
+                    {currentUser.title ||
+                      (isAdmin ? "Administrator" : "Team member")}
+                  </small>
+                </span>
+                <span className="profile-open-icon" aria-hidden="true">
+                  ↗
+                </span>
               </button>
             </div>
-          </div>
-
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
-                  Workspace
-                </p>
-                <select
-                  value={currentOrg.id}
-                  onChange={(event) => onOrgChange(event.target.value)}
-                  className="mt-1 bg-transparent font-semibold text-white outline-none"
-                >
-                  {organizations.map((organization) => (
-                    <option
-                      key={organization.id}
-                      value={organization.id}
-                      className="text-slate-900"
-                    >
-                      {organization.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
-                  Workspace owner
-                </p>
-                <p className="mt-1 font-semibold">{currentOrg.ownerName}</p>
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
-                  Seats
-                </p>
-                <p className="mt-1 font-semibold">
-                  {currentOrg.seats.used}/{currentOrg.seats.total} assigned
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <img
-                src={currentUser.avatar}
-                alt={currentUser.name}
-                className="h-11 w-11 rounded-2xl border border-white/10 object-cover"
-              />
-              <div>
-                <p className="text-sm font-semibold text-white">
-                  {currentUser.name}
-                </p>
-                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
-                  {currentUser.title || currentUser.role}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-4 px-4 py-4 lg:px-6 lg:py-5">
-        <section className="rounded-[28px] border border-white/70 bg-white/80 p-4 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex flex-wrap items-center gap-2">
-                {[
-                  {
-                    id: "LIST",
-                    label: listTabLabel,
-                    icon: "fa-solid fa-list-check",
-                  },
-                  {
-                    id: "CALENDAR",
-                    label: "Calendar",
-                    icon: "fa-regular fa-calendar",
-                  },
-                  {
-                    id: "DISPATCH",
-                    label: "Dispatch",
-                    icon: "fa-solid fa-timeline",
-                  },
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() =>
-                      onViewModeChange(
-                        item.id as "LIST" | "CALENDAR" | "DISPATCH",
-                      )
-                    }
-                    className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${
-                      viewMode === item.id
-                        ? "bg-slate-950 text-white shadow-lg shadow-slate-950/10"
-                        : "border border-slate-200 bg-white text-slate-600 hover:text-slate-950"
-                    }`}
-                  >
-                    <i className={`${item.icon} mr-2 text-xs`}></i>
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex rounded-2xl bg-slate-100 p-1 text-xs font-semibold text-slate-500">
-                  <button
-                    onClick={() => onScopeChange("MY")}
-                    className={`rounded-2xl px-4 py-2 transition ${scope === "MY" ? "bg-white text-slate-950 shadow-sm" : ""}`}
-                  >
-                    My
-                  </button>
-                  <button
-                    onClick={() => onScopeChange("TEAM")}
-                    className={`rounded-2xl px-4 py-2 transition ${scope === "TEAM" ? "bg-white text-slate-950 shadow-sm" : ""}`}
-                  >
-                    Team
+          </header>
+          <div className="workspace-page">
+            {viewMode === "LIST" && (
+              <section className="request-page-heading">
+                <div>
+                  <span className="eyebrow">TIME OFF & AVAILABILITY</span>
+                  <h1>Approvals</h1>
+                  <p>
+                    {isAdmin
+                      ? "Review your team’s requests and submit your own time off."
+                      : "Request time off, share availability, and follow each decision."}
+                  </p>
+                </div>
+                <div className="request-create-controls">
+                  <label>
+                    Request date
+                    <input
+                      aria-label="Request date"
+                      type="date"
+                      value={formatDateKey(currentDate)}
+                      onChange={(e) => {
+                        if (e.target.value)
+                          onDateChange(dateFromKey(e.target.value));
+                      }}
+                    />
+                  </label>
+                  <button className="brand-button" onClick={onCreateClick}>
+                    + Create request
                   </button>
                 </div>
-
-                {viewMode !== "LIST" && (
-                  <div className="flex rounded-2xl bg-slate-100 p-1 text-xs font-semibold text-slate-500">
-                    {[
-                      { id: "DAY", label: "Day" },
-                      { id: "MONTH", label: "Month" },
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        onClick={() =>
-                          onTimeViewChange(item.id as "DAY" | "MONTH")
-                        }
-                        className={`rounded-2xl px-4 py-2 transition ${
-                          timeView === item.id
-                            ? "bg-white text-slate-950 shadow-sm"
-                            : ""
-                        }`}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="grid gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)]">
-              <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
-                <MetricTile
-                  icon="fa-solid fa-user-group"
-                  label="Staff"
-                  value={`${workspaceMetrics.teamMembers}`}
-                />
-                <MetricTile
-                  icon="fa-solid fa-clock-rotate-left"
-                  label="Pending"
-                  value={`${workspaceMetrics.pendingApprovals}`}
-                />
-                <MetricTile
-                  icon="fa-solid fa-briefcase-medical"
-                  label="Scheduled Today"
-                  value={`${workspaceMetrics.scheduledToday}`}
-                />
-                <MetricTile
-                  icon="fa-solid fa-bed-pulse"
-                  label="Upcoming Leave"
-                  value={`${workspaceMetrics.upcomingLeave}`}
-                />
-              </div>
-
-              <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                      Schedule date
-                    </p>
-                    <p className="mt-1 text-lg font-extrabold text-slate-950">
-                      {currentDate.toLocaleDateString(undefined, {
-                        weekday: "long",
-                        month: "long",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
-                    </p>
-                  </div>
+              </section>
+            )}
+            {viewMode !== "DASHBOARD" && (
+              <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4">
+                <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-500">
+                  <span>
+                    <strong className="text-lg text-slate-900">
+                      {workspaceMetrics.teamMembers}
+                    </strong>{" "}
+                    staff
+                  </span>
+                  <span>
+                    <strong className="text-lg text-slate-900">
+                      {workspaceMetrics.pendingApprovals}
+                    </strong>{" "}
+                    pending requests
+                  </span>
+                  <span>
+                    <strong className="text-lg text-slate-900">
+                      {workspaceMetrics.scheduledToday === null
+                        ? "Unavailable"
+                        : workspaceMetrics.scheduledToday}
+                    </strong>{" "}
+                    assigned today
+                  </span>
+                  <span>
+                    <strong className="text-lg text-slate-900">
+                      {workspaceMetrics.upcomingLeave}
+                    </strong>{" "}
+                    upcoming leave
+                  </span>
+                </div>
+                <span className="text-xs text-slate-400">
+                  {currentOrg.timezone}
+                </span>
+              </section>
+            )}
+            {["SCHEDULE", "DISPATCH", "CALENDAR"].includes(viewMode) && (
+              <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white p-3">
+                <div className="flex items-center gap-3">
                   <button
+                    aria-label="Previous schedule period"
+                    className="rounded-xl border px-3 py-2"
+                    onClick={() => move(-1)}
+                  >
+                    ←
+                  </button>
+                  <span className="text-sm font-semibold">
+                    {currentDate.toLocaleDateString(undefined, {
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </span>
+                  <button
+                    aria-label="Next schedule period"
+                    className="rounded-xl border px-3 py-2"
+                    onClick={() => move(1)}
+                  >
+                    →
+                  </button>
+                  <button
+                    className="rounded-xl border px-3 py-2 text-sm"
                     onClick={() =>
                       onDateChange(
                         dateFromKey(workspaceToday(currentOrg.timezone)),
                       )
                     }
-                    className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                   >
                     Today
                   </button>
                 </div>
-
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-2 py-2">
-                  <button
-                    onClick={() => shiftDate(-1)}
-                    className="rounded-2xl px-4 py-3 text-slate-500 transition hover:bg-slate-50 hover:text-slate-950"
-                  >
-                    <i className="fa-solid fa-chevron-left text-xs"></i>
-                  </button>
-                  <span className="text-sm font-semibold text-slate-700">
-                    Move through the schedule
-                  </span>
-                  <button
-                    onClick={() => shiftDate(1)}
-                    className="rounded-2xl px-4 py-3 text-slate-500 transition hover:bg-slate-50 hover:text-slate-950"
-                  >
-                    <i className="fa-solid fa-chevron-right text-xs"></i>
-                  </button>
+                <div className="flex flex-wrap gap-2">
+                  <div className="flex rounded-xl bg-slate-100 p-1">
+                    {(["MY", "TEAM"] as const).map((s) => (
+                      <button
+                        key={s}
+                        aria-pressed={scope === s}
+                        className={`rounded-lg px-3 py-2 text-xs font-bold ${scope === s ? "bg-white shadow-sm" : ""}`}
+                        onClick={() => onScopeChange(s)}
+                      >
+                        {s === "MY" ? "My" : "Team"}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex rounded-xl bg-slate-100 p-1">
+                    {(
+                      [
+                        "DAY",
+                        ...(viewMode === "SCHEDULE" ? ["WEEK"] : []),
+                        "MONTH",
+                      ] as TimeView[]
+                    ).map((v) => (
+                      <button
+                        key={v}
+                        aria-pressed={timeView === v}
+                        className={`rounded-lg px-3 py-2 text-xs font-bold ${timeView === v ? "bg-white shadow-sm" : ""}`}
+                        onClick={() => onTimeViewChange(v)}
+                      >
+                        {v[0] + v.slice(1).toLowerCase()}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex flex-col gap-3 md:flex-row">
-                <UsagePill
-                  label="Requests"
-                  used={usageSummary.requestsUsed}
-                  limit={usageSummary.requestLimit}
-                />
-                <UsagePill
-                  label="AI Credits"
-                  used={usageSummary.aiUsed}
-                  limit={usageSummary.aiLimit}
-                />
-              </div>
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                PulseShift tracks plan usage per workspace, so seats, request
-                volume, and AI automation stay scoped to the active
-                organization.
-              </div>
-            </div>
+              </section>
+            )}
+            <main
+              id="workspace-content"
+              tabIndex={-1}
+              className="workspace-main relative min-h-[520px]"
+            >
+              {children}
+            </main>
+            <footer className="flex flex-wrap justify-between gap-3 px-1 text-xs text-slate-400">
+              <span>PulseShift · {currentOrg.name}</span>
+              <button
+                className="font-semibold hover:text-slate-700"
+                onClick={() => setHelp(true)}
+              >
+                How to use PulseShift
+              </button>
+            </footer>
           </div>
-        </section>
-
-        <main className="relative min-h-[520px] flex-1 overflow-hidden rounded-[32px] border border-white/70 bg-white/75 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur">
-          {children}
-        </main>
+        </div>
       </div>
+      {profileOpen && (
+        <Modal
+          label="Your workspace account"
+          variant="drawer"
+          onClose={() => setProfileOpen(false)}
+        >
+          <aside className="min-h-screen space-y-6 bg-white p-6 text-slate-900">
+            <div className="flex justify-between">
+              <p className="text-xs font-bold uppercase tracking-widest text-sky-700">
+                Your workspace
+              </p>
+              <button
+                aria-label="Close account panel"
+                className="rounded-xl border px-3 py-2"
+                onClick={() => setProfileOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-5">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-100 text-xl font-bold text-sky-800">
+                {currentUser.name[0]}
+              </div>
+              <h2 className="mt-4 text-2xl font-extrabold">
+                {currentUser.name}
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {currentUser.title || currentUser.role}
+              </p>
+              <p className="mt-3 text-sm font-semibold">{currentOrg.name}</p>
+            </div>
+            <label className="block text-sm font-semibold">
+              Active workspace
+              <select
+                aria-label="Switch workspace from account panel"
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3"
+                value={currentOrg.id}
+                onChange={(e) => {
+                  setProfileOpen(false);
+                  onOrgChange(e.target.value);
+                }}
+              >
+                {organizations.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="space-y-3">
+              {[
+                [
+                  "Account & security",
+                  () => {
+                    setProfileOpen(false);
+                    onAccount();
+                  },
+                ],
+                [
+                  "Team & invitations",
+                  () => {
+                    setProfileOpen(false);
+                    onManageTeam();
+                  },
+                ],
+                [
+                  "Plan & workspace usage",
+                  () => {
+                    setProfileOpen(false);
+                    onUpgradePlan();
+                  },
+                ],
+                [
+                  "How to use PulseShift",
+                  () => {
+                    setProfileOpen(false);
+                    setHelp(true);
+                  },
+                ],
+              ].map(([label, action]) => (
+                <button
+                  key={String(label)}
+                  className="flex w-full items-center justify-between rounded-2xl border p-4 text-left text-sm font-semibold hover:bg-slate-50"
+                  onClick={action as () => void}
+                >
+                  {String(label)}
+                  <span aria-hidden="true">→</span>
+                </button>
+              ))}
+            </div>
+            <div className="rounded-2xl border p-4 text-xs leading-7 text-slate-500">
+              <p>
+                Plan: <strong>{currentOrg.plan}</strong>
+                {currentOrg.trialStatus === "ACTIVE"
+                  ? ` · ${currentOrg.trialDaysRemaining} trial days left`
+                  : ""}
+              </p>
+              <p>
+                Seats: {currentOrg.seats.used}/{currentOrg.seats.total}
+              </p>
+              <p>
+                Active requests: {usageSummary.requestsUsed}/
+                {usageSummary.requestLimit}
+              </p>
+              <p>
+                AI credits used: {usageSummary.aiUsed}/{usageSummary.aiLimit}
+              </p>
+            </div>
+            <button
+              className="w-full rounded-2xl border border-rose-200 bg-rose-50 p-4 text-left text-sm font-bold text-rose-700"
+              onClick={() => {
+                setProfileOpen(false);
+                onLogout();
+              }}
+            >
+              Sign out
+            </button>
+          </aside>
+        </Modal>
+      )}
+      {help && (
+        <Modal label="How to use PulseShift" onClose={() => setHelp(false)}>
+          <section className="mx-auto max-w-2xl space-y-5 rounded-3xl bg-white p-6">
+            <h2 className="text-2xl font-bold">How to use PulseShift</h2>
+            <ol className="list-decimal space-y-4 pl-5 text-sm leading-6">
+              <li>
+                <strong>Dashboard:</strong> browse the month, select a day, and
+                switch between your assignments and the whole team. Planned and
+                estimated hours are separate from clock-in records.
+              </li>
+              <li>
+                <strong>Request leave:</strong> open Approvals, choose a date
+                and Create request, select PTO or Sick, enter a note, and
+                submit. Managers decide requests in Approvals.
+              </li>
+              <li>
+                <strong>Accept work:</strong> open your assignment on the
+                Dashboard and select Accept assignment. Decline opens a
+                replacement vacancy and alerts managers.
+              </li>
+              <li>
+                <strong>Plan shifts:</strong> administrators set eligible roles,
+                create draft shifts in Shift planner, assign staff, review
+                conflicts, and publish. Drafts remain private.
+              </li>
+              <li>
+                <strong>Record actual time:</strong> open Workforce centre → My
+                work. Clock in, start/end breaks, and clock out. Another manager
+                reviews your recorded time.
+              </li>
+              <li>
+                <strong>Workforce tools:</strong> use Open shifts for
+                replacement invitations, Swaps for colleague trades, and
+                Credentials for expiry records. Managers have reports and time
+                approvals.
+              </li>
+              <li>
+                <strong>Your profile:</strong> click your name in the header for
+                Account, Team, Plan, and Sign out.
+              </li>
+            </ol>
+            <p className="text-xs text-slate-500">
+              The local test database is separate from your hosted account.
+              Billing and recovery emails need configured providers.
+            </p>
+            <button
+              className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white"
+              onClick={() => setHelp(false)}
+            >
+              Got it
+            </button>
+          </section>
+        </Modal>
+      )}
     </div>
   );
-};
+}

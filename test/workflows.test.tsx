@@ -46,7 +46,7 @@ it("dispatch shows date-only coverage and passes clicked request identity", () =
     />,
   );
   expect(screen.queryByText("8 AM")).toBeNull();
-  fireEvent.click(screen.getByText("Work approved — date only"));
+  fireEvent.click(screen.getByText("Available — not assigned"));
   expect(open.mock.calls[0][1]).toEqual(request);
 });
 it("workspace Today uses organization timezone across a midnight boundary", () => {

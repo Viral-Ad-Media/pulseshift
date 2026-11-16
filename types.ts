@@ -76,3 +76,72 @@ export interface SessionState {
   orgId: string;
   userId: string;
 }
+
+export type ViewMode =
+  | "DASHBOARD"
+  | "WORKFORCE"
+  | "SETTINGS"
+  | "REPORTS"
+  | "AUDIT"
+  | "IMPORTS"
+  | "INTEGRATIONS"
+  | "SCHEDULE"
+  | "LIST"
+  | "CALENDAR"
+  | "DISPATCH"
+  | "ACTIVITY";
+export type TimeView = "DAY" | "WEEK" | "MONTH";
+export interface Assignment {
+  userId: string;
+  breakStartMinutes: number;
+  breakMinutes: number;
+}
+export interface ScheduledShift {
+  id: string;
+  title: string;
+  department: string;
+  location: string;
+  role: string;
+  requiredCount: number;
+  localStart: string;
+  localEnd: string;
+  startsAt: string;
+  endsAt: string;
+  assignments: Assignment[];
+  requiresAcknowledgement: boolean;
+  publicationVersion?: number;
+}
+export interface SchedulingProfile {
+  userId: string;
+  roles: string[];
+  minRestHours: number;
+  maxWeeklyHours: number;
+}
+export interface ScheduleTemplate {
+  id: string;
+  name: string;
+  entries: Array<{ dayOffset: number; title: string }>;
+}
+export interface ScheduleData {
+  revision: number;
+  timezone: string;
+  shifts: ScheduledShift[];
+  published: ScheduledShift[];
+  profiles: SchedulingProfile[];
+  templates: ScheduleTemplate[];
+  issues: Array<{ shiftId: string; code: string; message: string }>;
+  acknowledgements: Array<{
+    shiftId: string;
+    publicationVersion: number;
+    userId: string;
+    acknowledgedAt: string;
+  }>;
+}
+export interface InboxNotification {
+  id: string;
+  kind: string;
+  message: string;
+  entityId: string;
+  createdAt: string;
+  readAt: string | null;
+}

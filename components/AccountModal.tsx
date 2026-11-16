@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { TwoFactorSettings } from "./AccountFlows";
 import { Modal } from "./Modal";
 import { api, setAuthToken } from "../services/api";
 export function AccountModal({
@@ -8,10 +9,18 @@ export function AccountModal({
   onClose: () => void;
   onSessionChange: (token: string | null) => void;
 }) {
+  const [twoFactorOpen, setTwoFactorOpen] = useState(false);
   const [currentPassword, setCurrent] = useState(""),
     [newPassword, setNew] = useState(""),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
+  if (twoFactorOpen)
+    return (
+      <TwoFactorSettings
+        onClose={() => setTwoFactorOpen(false)}
+        onSessionChange={onSessionChange}
+      />
+    );
   return (
     <Modal
       label="Account security"
@@ -79,6 +88,14 @@ export function AccountModal({
           className="rounded-xl bg-slate-950 px-4 py-3 text-white"
         >
           {busy ? "Saving..." : "Change password"}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-xl border px-4 py-3"
+          onClick={() => setTwoFactorOpen(true)}
+        >
+          Two-step verification
         </button>
         <button
           type="button"

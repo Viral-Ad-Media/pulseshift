@@ -185,10 +185,12 @@ export const RequestModal: React.FC<RequestModalProps> = ({
                     : "text-slate-500"
                 } ${!isEditable ? "cursor-not-allowed opacity-60" : ""}`}
               >
-                {type === "WORK" ? "Work" : type}
+                {type === "WORK" ? "Available" : type}
               </button>
             ))}
           </div>
+
+          {activeTab === RequestType.WORK && <p className="text-sm text-sky-800">This records your availability for the day. It does not assign you a shift. Published assignments appear in the Shift planner.</p>}
 
           {!existingRequest && (
             <div

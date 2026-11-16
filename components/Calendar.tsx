@@ -1,11 +1,11 @@
 import React from "react";
-import { RequestStatus, RequestType, ShiftRequest, User } from "../types";
+import { RequestStatus, RequestType, ShiftRequest, User, TimeView, ViewMode } from "../types";
 
 interface CalendarProps {
   currentDate: Date;
   requests: ShiftRequest[];
-  viewMode: "LIST" | "CALENDAR" | "DISPATCH";
-  timeView: "DAY" | "MONTH";
+  viewMode: ViewMode;
+  timeView: TimeView;
   users: User[];
   workspaceLabel: string;
   selectedDate: Date | null;
@@ -32,8 +32,8 @@ const TimelineView: React.FC<{
           {workspaceLabel} — daily availability
         </h2>
         <p className="mt-2 text-sm text-slate-600">
-          {dateKey}. Requests record a date only; shift start and end times are
-          not recorded.
+          {dateKey}. Availability and leave requests are date-only. Published assignments
+          and working hours appear in the Shift planner.
         </p>
       </div>
       {users.map((user) => {
@@ -66,7 +66,7 @@ const TimelineView: React.FC<{
                 >
                   <span className="font-semibold">
                     {request.type === RequestType.WORK
-                      ? "Work approved — date only"
+                      ? "Available — not assigned"
                       : `${request.type} — unavailable`}
                   </span>
                   {request.notes && (

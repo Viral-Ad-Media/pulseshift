@@ -71,7 +71,7 @@ export const MyShifts: React.FC<MyShiftsProps> = ({ requests, onEdit, onCancel }
                   <div className="flex items-center gap-2">
                     <i className={`fa-solid ${getTypeIcon(req.type)} text-slate-400 text-sm`}></i>
                     <h4 className="text-lg font-semibold text-slate-800">
-                      {req.type === RequestType.WORK ? 'Shift Request' : req.type}
+                      {req.type === RequestType.WORK ? 'Availability request' : req.type}
                     </h4>
                   </div>
                   {req.notes && (

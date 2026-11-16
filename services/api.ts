@@ -23,15 +23,36 @@ const request = async (path: string, options: RequestInit = {}) => {
       503,
     );
   const generation = sessionVersion;
-  const res = await fetch(`${API_URL.replace(/\/$/, "")}${path}`, {
-    ...options,
-    signal: options.signal || AbortSignal.timeout(30000),
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL.replace(/\/$/, "")}${path}`, {
+      ...options,
+      signal: options.signal || AbortSignal.timeout(30000),
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+    });
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      error.name === "TimeoutError"
+    )
+      throw new ApiError(
+        "The server took too long to respond. Please try again.",
+        504,
+      );
+    throw new ApiError(
+      import.meta.env.DEV
+        ? `Cannot reach the API at ${API_URL}. Check VITE_API_URL and that the API is running and allows this site's origin.`
+        : "Cannot connect to the server. Check your connection and try again.",
+      503,
+    );
+  }
   if (generation !== sessionVersion)
     throw new ApiError(
       "The session changed. Retry in your current workspace.",
@@ -55,6 +76,24 @@ const request = async (path: string, options: RequestInit = {}) => {
   return data;
 };
 export const api = {
+  download: async (path: string) => {
+    if (!API_URL) throw new ApiError("API address is not configured", 503);
+    const generation = sessionVersion;
+    const response = await fetch(`${API_URL.replace(/\/$/, "")}${path}`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      signal: AbortSignal.timeout(30000),
+    });
+    if (generation !== sessionVersion)
+      throw new ApiError(
+        "Session changed. Retry in your current workspace.",
+        409,
+      );
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new ApiError(data.error || "Download failed", response.status);
+    }
+    return response.blob();
+  },
   get: (path: string) => request(path),
   post: (path: string, body?: unknown) =>
     request(path, { method: "POST", body: JSON.stringify(body ?? {}) }),

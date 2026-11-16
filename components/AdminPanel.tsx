@@ -177,7 +177,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             : "bg-rose-100 text-rose-700"
                       }`}
                     >
-                      {request.type}
+                      {request.type === "WORK" ? "Availability" : request.type}
                     </span>
                     <span className="text-sm text-slate-400">
                       Submitted{" "}
